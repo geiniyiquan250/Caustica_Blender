@@ -1,0 +1,18 @@
+Caustica Blender
+================
+
+This repository is a Blender 5.2.0 LTS source tree with CyclesPlus caustics
+changes.
+
+The Blender source is distributed under the GNU General Public License,
+version 2 or later. See COPYING and doc/license/GPL-license.txt for the
+license notice and complete license text.
+
+Individual files may carry additional compatible license notices in their
+SPDX headers. The CyclesPlus caustics files identify their copyright and
+Apache-2.0 terms in those headers. File-level SPDX notices control the terms
+for those files; this notice does not relicense Blender or bundled third-party
+code.
+
+Copyright and contributor information is preserved in AUTHORS and in the
+individual source-file headers.
