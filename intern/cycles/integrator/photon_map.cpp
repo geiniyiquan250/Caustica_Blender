@@ -3208,11 +3208,12 @@ size_t bin_packed_deposits(const float4 *dep_pos,
   if (total == 0) {
     return 0;
   }
+  const float safe_radius = photon_safe_radius(radius);
   uint table_size = 64;
   while (table_size < total / 2) {
     table_size <<= 1;
   }
-  const float inv_cell = 1.0f / radius;
+  const float inv_cell = 1.0f / safe_radius;
 
   out.cell_start.clear();
   out.cell_start.resize(table_size + 1, 0);
@@ -3242,7 +3243,7 @@ size_t bin_packed_deposits(const float4 *dep_pos,
   out.grid.cell_start = out.cell_start.data();
   out.grid.num_photons = (int)total;
   out.grid.table_size = table_size;
-  out.grid.radius = radius;
+  out.grid.radius = safe_radius;
   out.grid.inv_cell = inv_cell;
   /* Host-resident: clear any device-resident state a previous generation
    * left in this reused Storage. */
@@ -3359,6 +3360,7 @@ size_t trace_batch_gpu(PhotonMapData &d,
                        PhotonMapData::Storage &out)
 {
   out.valid = false;
+  const float safe_radius = photon_safe_radius(radius);
   const int max_bounces = 12;
   Device *device = d.trace_device;
 
@@ -3580,7 +3582,7 @@ size_t trace_batch_gpu(PhotonMapData &d,
       while (table_size < (uint)total / 2) {
         table_size <<= 1;
       }
-      const float inv_cell = 1.0f / radius;
+      const float inv_cell = 1.0f / safe_radius;
       if (!d.d_cell_count) {
         d.d_cell_count = make_unique<device_vector<uint>>(
             device, "photon_cell_count", MEM_READ_WRITE);
@@ -3628,7 +3630,7 @@ size_t trace_batch_gpu(PhotonMapData &d,
         out.dep_pos_dev->copy_from_device();
         const float4 *hp = out.dep_pos_dev->data();
         vector<uint> host_count(table_size, 0);
-        const float vinv = 1.0f / radius;
+        const float vinv = 1.0f / safe_radius;
         for (int i = 0; i < total; i++) {
           const float4 p = hp[i];
           host_count[photon_grid_hash((int)floorf(p.x * vinv),
@@ -3688,7 +3690,7 @@ size_t trace_batch_gpu(PhotonMapData &d,
         out.grid.cell_start = out.cell_start.data();
         out.grid.num_photons = total;
         out.grid.table_size = table_size;
-        out.grid.radius = radius;
+        out.grid.radius = safe_radius;
         out.grid.inv_cell = inv_cell;
         out.grid.device_resident = 0;
         out.grid.dep_pos_device = 0;
@@ -3705,7 +3707,7 @@ size_t trace_batch_gpu(PhotonMapData &d,
       out.grid.cell_start = out.cell_start.data();
       out.grid.num_photons = total;
       out.grid.table_size = table_size;
-      out.grid.radius = radius;
+      out.grid.radius = safe_radius;
       out.grid.inv_cell = inv_cell;
       out.grid.device_resident = 1;
       out.grid.dep_pos_device = (uint64_t)dep_pos_ptr;
@@ -3855,6 +3857,7 @@ bool gpu_async_begin(PhotonMapData &d,
                      const uint64_t k,
                      PhotonMapData::Storage &out)
 {
+  const float safe_radius = photon_safe_radius(radius);
   static const bool bin_disable = getenv("CYCLESPLUS_PHOTON_GPU_BIN_DISABLE") != nullptr;
   static const int debug_mode = []() {
     const char *env = getenv("CYCLESPLUS_PHOTON_GPU_DEBUG");
@@ -3960,7 +3963,7 @@ bool gpu_async_begin(PhotonMapData &d,
   d.gpu_off = 0;
   d.gpu_total = total_photons;
   d.gpu_num_photons = num_photons;
-  d.gpu_radius = radius;
+  d.gpu_radius = safe_radius;
   d.gpu_batch_k = (int)k;
   d.gpu_begin_time = time_dt();
   return true;
@@ -4075,7 +4078,7 @@ size_t gpu_async_finish(PhotonMapData &d, PhotonMapData::Storage &out)
   while (table_size < (uint)total / 2) {
     table_size <<= 1;
   }
-  const float inv_cell = 1.0f / d.gpu_radius;
+  const float inv_cell = 1.0f / photon_safe_radius(d.gpu_radius);
   if (!d.d_cell_count) {
     d.d_cell_count = make_unique<device_vector<uint>>(d.trace_device, "photon_cell_count",
                                                       MEM_READ_WRITE);
@@ -4112,7 +4115,7 @@ size_t gpu_async_finish(PhotonMapData &d, PhotonMapData::Storage &out)
   out.grid.cell_start = out.cell_start.data();
   out.grid.num_photons = total;
   out.grid.table_size = table_size;
-  out.grid.radius = d.gpu_radius;
+  out.grid.radius = photon_safe_radius(d.gpu_radius);
   out.grid.inv_cell = inv_cell;
   out.grid.device_resident = 1;
   out.grid.dep_pos_device = (uint64_t)dep_pos_ptr;

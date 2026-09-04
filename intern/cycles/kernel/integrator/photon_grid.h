@@ -61,6 +61,16 @@ ccl_device_inline uint photon_grid_hash(const int x, const int y, const int z, c
   return h & (table_size - 1);
 }
 
+ccl_device_inline float photon_safe_radius(const float radius)
+{
+  return (isfinite_safe(radius) && radius > 1e-10f) ? radius : 1e-10f;
+}
+
+ccl_device_inline float photon_safe_radius_squared(const float radius_squared)
+{
+  return (isfinite_safe(radius_squared) && radius_squared > 1e-20f) ? radius_squared : 1e-20f;
+}
+
 /* Octahedral normal packing: two signed 16 bit components in one float's bit
  * pattern. Used for photon deposit normals (pos.w) and the film measurement
  * point normal; plenty of precision for orientation tests. */

@@ -39,6 +39,10 @@ ccl_device float3 photon_grid_gather(KernelGlobals kg,
   *r_num_gathered = 0;
   *r_centroid_offset = 0.0f;
 
+  /* Keep the density estimate finite when an extreme scene scale or
+   * progressive shrink produces a subnormal radius. */
+  const float gather_r2 = photon_safe_radius_squared(r2);
+
   if (kernel_data.integrator.photon_num == 0) {
     return make_float3(0.0f, 0.0f, 0.0f);
   }
@@ -69,13 +73,13 @@ ccl_device float3 photon_grid_gather(KernelGlobals kg,
           const float4 pp = kernel_data_fetch(photon_pos, p);
           const float3 d = make_float3(pp.x - P.x, pp.y - P.y, pp.z - P.z);
           const float d2 = dot(d, d);
-          if (d2 >= r2) {
+          if (d2 >= gather_r2) {
             continue;
           }
           /* Reject photons that are radially close but on another surface:
            * distance along the normal must stay well under the radius. */
           const float dn = dot(d, N);
-          if (dn * dn > 0.1f * r2) {
+          if (dn * dn > 0.1f * gather_r2) {
             continue;
           }
           /* Reject photons deposited on an opposite-facing surface: the
@@ -85,7 +89,7 @@ ccl_device float3 photon_grid_gather(KernelGlobals kg,
           if (dot(photon_unpack_normal(pp.w), N) <= 0.0f) {
             continue;
           }
-          const float w = 1.0f - d2 / r2; /* Epanechnikov */
+          const float w = 1.0f - d2 / gather_r2; /* Epanechnikov */
           const float4 flux = kernel_data_fetch(photon_flux, p);
           const float3 contribution = w * make_float3(flux.x, flux.y, flux.z);
           sum += contribution;
@@ -108,7 +112,7 @@ ccl_device float3 photon_grid_gather(KernelGlobals kg,
     /* Weighted centroid offset relative to the radius: ~0 for a uniform
      * photon field, large when the disc straddles an illumination boundary
      * (waterline, shadow edge) and all photons sit on one side. */
-    *r_centroid_offset = len(weighted_offset / weight_total) / sqrtf(r2);
+    *r_centroid_offset = len(weighted_offset / weight_total) / sqrtf(gather_r2);
   }
   return sum;
 }
