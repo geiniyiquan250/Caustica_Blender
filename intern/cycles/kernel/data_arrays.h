@@ -91,9 +91,14 @@ KERNEL_DATA_ARRAY(float, volume_step_size)
 
 /* photon caustics (CyclesPlus) */
 KERNEL_DATA_ARRAY(float4, photon_pos)
+KERNEL_DATA_ARRAY(float4, photon_beam_start)
 KERNEL_DATA_ARRAY(float4, photon_flux)
 KERNEL_DATA_ARRAY(int, photon_cell_start)
 KERNEL_DATA_ARRAY(uint, photon_shader_caster)
+KERNEL_DATA_ARRAY(float4, photon_volume_beam_start)
+KERNEL_DATA_ARRAY(float4, photon_volume_beam_end)
+KERNEL_DATA_ARRAY(float4, photon_volume_beam_flux)
+KERNEL_DATA_ARRAY(KernelPhotonBeamNode, photon_volume_beam_nodes)
 
 /* image textures */
 KERNEL_DATA_ARRAY(KernelImageTexture, image_textures)

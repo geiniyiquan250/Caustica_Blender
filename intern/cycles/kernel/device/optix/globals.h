@@ -37,6 +37,7 @@ struct KernelParamsOptiX {
 
   /* Photon tracing arguments (CyclesPlus, __raygen__kernel_optix_photon_trace). */
   float4 *photon_out_pos;
+  float4 *photon_out_beam_start;
   float4 *photon_out_flux;
   uint *photon_out_counter;
   const void *photon_lights;

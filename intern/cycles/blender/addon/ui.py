@@ -675,6 +675,7 @@ class CYCLES_RENDER_PT_light_paths_caustics(CyclesButtonsPanel, Panel):
         col.prop(cscene, "use_photon_caustics", text="Photon Caustics Solver")
         sub = col.column(align=True)
         sub.active = cscene.use_photon_caustics
+        sub.prop(cscene, "use_photon_volume_caustics", text="Volume Caustics")
         sub.prop(cscene, "photon_caustics_count")
         sub.prop(cscene, "photon_caustics_detail")
         sub.prop(cscene, "photon_caustics_intensity", text="Intensity")

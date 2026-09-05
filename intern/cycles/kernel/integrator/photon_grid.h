@@ -16,6 +16,7 @@
 
 #include "util/math.h"
 #include "util/types.h"
+#include "kernel/types.h"
 
 CCL_NAMESPACE_BEGIN
 
@@ -24,12 +25,19 @@ CCL_NAMESPACE_BEGIN
  * photon_cell_start (see PathTrace::set_photon_grid). */
 struct PhotonGrid {
   const float4 *pos = nullptr;  /* xyz = position, w = packed deposit normal */
+  const float4 *beam_start = nullptr; /* xyz = volume beam segment start */
   const float4 *flux = nullptr; /* xyz = flux in W, w = emitting light's group */
   const int *cell_start = nullptr;
   int num_photons = 0;
   uint table_size = 0; /* power of two */
   float radius = 0.0f; /* gather radius == cell size */
   float inv_cell = 0.0f;
+  const float4 *volume_beam_start = nullptr;
+  const float4 *volume_beam_end = nullptr;
+  const float4 *volume_beam_flux = nullptr;
+  const KernelPhotonBeamNode *volume_beam_nodes = nullptr;
+  int num_volume_beams = 0;
+  int num_volume_beam_nodes = 0;
   uint64_t generation = 0; /* bumped on every published batch */
   /* Device-resident batch (GPU tracer + GPU binning): `pos`/`flux` are null,
    * the unsorted deposits live in VRAM at the addresses below and are
@@ -38,6 +46,7 @@ struct PhotonGrid {
    * `cell_start` (the host prefix table) crosses PCIe. */
   int device_resident = 0;
   uint64_t dep_pos_device = 0;
+  uint64_t dep_beam_start_device = 0;
   uint64_t dep_flux_device = 0;
   void *owner = nullptr; /* PhotonMap*, host-side only */
   /* Per kernel shader slot: does the photon map cast from this shader?
@@ -102,6 +111,13 @@ ccl_device_inline float3 photon_unpack_normal(const float packed)
     n.y = (1.0f - fabsf(nx)) * (n.y >= 0.0f ? 1.0f : -1.0f);
   }
   return normalize(n);
+}
+
+/* Fractional light-group marker distinguishes beams from surface deposits. */
+ccl_device_inline bool photon_deposit_is_volume(const float packed_lightgroup)
+{
+  const float fraction = packed_lightgroup - floorf(packed_lightgroup);
+  return fraction >= 0.375f && fraction <= 0.625f;
 }
 
 CCL_NAMESPACE_END

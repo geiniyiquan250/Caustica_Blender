@@ -8,6 +8,7 @@
 
 #include "kernel/film/denoising_passes.h"
 #include "kernel/film/light_passes.h"
+#include "kernel/integrator/photon_lookup.h"
 
 #include "kernel/integrator/guiding.h"
 #include "kernel/integrator/intersect_closest.h"
@@ -1733,6 +1734,35 @@ ccl_device_forceinline void volume_integrate_homogeneous(KernelGlobals kg,
     const Spectrum emission = volume_emission_integrate(&coeff, sd->flag, ray_length);
     vstate.emission = throughput * emission;
     guiding_record_volume_emission(kg, state, emission);
+  }
+
+  /* Integrate the photon beams over the complete camera segment. A single
+   * volume hitpoint is only a point estimate and cannot form a continuous
+   * light column; the beam query supplies the missing line integral. */
+  if (kernel_data.integrator.use_photon_volume_caustics &&
+      (INTEGRATOR_STATE(state, path, visibility) & PATH_RAY_VISIBILITY_CAMERA) &&
+      kernel_data.integrator.photon_num > 0 && ray_length > 0.0f &&
+      !is_zero(coeff.sigma_s))
+  {
+    float volume_g = 0.0f;
+    for (int i = 0; i < sd->num_closure; i++) {
+      if (CLOSURE_IS_VOLUME_SCATTER(sd->closure[i].type)) {
+        volume_g = volume_phase_get_g(
+            (const ccl_private ShaderVolumeClosure *)&sd->closure[i]);
+        break;
+      }
+    }
+    const float3 beam_radiance = photon_grid_beam_integral(kg,
+                                                           ray->P,
+                                                           ray->D,
+                                                           ray->tmin,
+                                                           ray->tmax,
+                                                           coeff.sigma_t,
+                                                           coeff.sigma_s,
+                                                           volume_g,
+                                                           kernel_data.integrator.photon_radius *
+                                                               kernel_data.integrator.photon_radius);
+    vstate.emission += throughput * beam_radiance * kernel_data.integrator.photon_intensity;
   }
 
   /* Transmittance of the complete ray segment. */

@@ -1574,7 +1574,6 @@ void PathTrace::set_photon_grid(const struct PhotonGrid *grid)
    * CYCLESPLUS_PHOTON_HEURISTICS overrides (0 = textbook SPPM). */
   static const int heuristic_mask = []() {
     const char *env = getenv("CYCLESPLUS_PHOTON_HEURISTICS");
-    /* Bit 4: display smoothing (step 2), on by default. */
     return env ? atoi(env) : 0x1F;
   }();
   device_scene_->data.integrator.photon_heuristic_mask = heuristic_mask;
@@ -1602,11 +1601,18 @@ void PathTrace::set_photon_grid(const struct PhotonGrid *grid)
 
   if (generation == 0) {
     dscene->photon_pos.free();
+    dscene->photon_beam_start.free();
     dscene->photon_flux.free();
     dscene->photon_cell_start.free();
     dscene->photon_shader_caster.free();
+    dscene->photon_volume_beam_start.free();
+    dscene->photon_volume_beam_end.free();
+    dscene->photon_volume_beam_flux.free();
+    dscene->photon_volume_beam_nodes.free();
     kintegrator->photon_num = 0;
     kintegrator->photon_table_size = 0;
+    kintegrator->photon_volume_beam_num = 0;
+    kintegrator->photon_volume_beam_node_num = 0;
     kintegrator->photon_radius = 0.0f;
     kintegrator->photon_inv_cell = 0.0f;
     kintegrator->photon_batch_weight = 16;
@@ -1629,6 +1635,8 @@ void PathTrace::set_photon_grid(const struct PhotonGrid *grid)
       const size_t cap = (size_t)num + (size_t)num / 4;
       memset(dscene->photon_pos.alloc(cap), 0, sizeof(float4) * cap);
       dscene->photon_pos.copy_to_device();
+      memset(dscene->photon_beam_start.alloc(cap), 0, sizeof(float4) * cap);
+      dscene->photon_beam_start.copy_to_device();
       memset(dscene->photon_flux.alloc(cap), 0, sizeof(float4) * cap);
       dscene->photon_flux.copy_to_device();
     }
@@ -1644,6 +1652,7 @@ void PathTrace::set_photon_grid(const struct PhotonGrid *grid)
     PhotonMap *map = (PhotonMap *)grid->owner;
     const bool scattered = map != nullptr &&
                            map->scatter_published(dscene->photon_pos.device_pointer,
+                                                  dscene->photon_beam_start.device_pointer,
                                                   dscene->photon_flux.device_pointer,
                                                   dscene->photon_cell_start.device_pointer);
     if (scattered) {
@@ -1703,6 +1712,8 @@ void PathTrace::set_photon_grid(const struct PhotonGrid *grid)
 
     memcpy(dscene->photon_pos.alloc(num), grid->pos, sizeof(float4) * num);
     dscene->photon_pos.copy_to_device();
+    memcpy(dscene->photon_beam_start.alloc(num), grid->beam_start, sizeof(float4) * num);
+    dscene->photon_beam_start.copy_to_device();
     memcpy(dscene->photon_flux.alloc(num), grid->flux, sizeof(float4) * num);
     dscene->photon_flux.copy_to_device();
     /* High-water capacity, same reasoning as the device-resident branch. */
@@ -1717,6 +1728,47 @@ void PathTrace::set_photon_grid(const struct PhotonGrid *grid)
     kintegrator->photon_inv_cell = grid->inv_cell;
     kintegrator->photon_batch_weight = grid->weight16;
     kintegrator->photon_batch_steady = grid->steady;
+  }
+
+  if (generation != 0 && !grid->device_resident && grid->num_volume_beams > 0 &&
+      grid->num_volume_beam_nodes > 0 && grid->volume_beam_start != nullptr &&
+      grid->volume_beam_end != nullptr && grid->volume_beam_flux != nullptr &&
+      grid->volume_beam_nodes != nullptr)
+  {
+    const size_t beam_num = (size_t)grid->num_volume_beams;
+    const size_t node_num = (size_t)grid->num_volume_beam_nodes;
+    /* Keep high-water allocations, like the surface map, to avoid a device
+     * synchronization on every small change in the number of beams. */
+    const size_t beam_capacity = std::max(beam_num + beam_num / 4,
+                                          dscene->photon_volume_beam_start.size());
+    const size_t node_capacity = std::max(node_num + node_num / 4,
+                                          dscene->photon_volume_beam_nodes.size());
+    memcpy(dscene->photon_volume_beam_start.alloc(beam_capacity),
+           grid->volume_beam_start,
+           sizeof(float4) * beam_num);
+    dscene->photon_volume_beam_start.copy_to_device();
+    memcpy(dscene->photon_volume_beam_end.alloc(beam_capacity),
+           grid->volume_beam_end,
+           sizeof(float4) * beam_num);
+    dscene->photon_volume_beam_end.copy_to_device();
+    memcpy(dscene->photon_volume_beam_flux.alloc(beam_capacity),
+           grid->volume_beam_flux,
+           sizeof(float4) * beam_num);
+    dscene->photon_volume_beam_flux.copy_to_device();
+    memcpy(dscene->photon_volume_beam_nodes.alloc(node_capacity),
+           grid->volume_beam_nodes,
+           sizeof(KernelPhotonBeamNode) * node_num);
+    dscene->photon_volume_beam_nodes.copy_to_device();
+    kintegrator->photon_volume_beam_num = grid->num_volume_beams;
+    kintegrator->photon_volume_beam_node_num = grid->num_volume_beam_nodes;
+  }
+  else if (generation != 0) {
+    dscene->photon_volume_beam_start.free();
+    dscene->photon_volume_beam_end.free();
+    dscene->photon_volume_beam_flux.free();
+    dscene->photon_volume_beam_nodes.free();
+    kintegrator->photon_volume_beam_num = 0;
+    kintegrator->photon_volume_beam_node_num = 0;
   }
 
   device_->const_copy_to("data", &dscene->data, sizeof(dscene->data));

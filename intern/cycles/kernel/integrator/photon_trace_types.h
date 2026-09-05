@@ -18,6 +18,7 @@ enum PhotonTraceMaterialKind {
   PHOTON_MAT_GLASS = 1,
   PHOTON_MAT_METAL = 2,
   PHOTON_MAT_SKIP = 3,
+  PHOTON_MAT_VOLUME = 4,
 };
 
 /* Per-shader photon material, extracted host-side from the shader graphs
@@ -47,6 +48,8 @@ struct PhotonTraceMaterial {
    * 0 = demoted (path tracing owns the caustics, no spec++), 2 = demoted
    * glass (Fresnel-share pass-through, no spec++). */
   float4 volume_sigma;
+  /* xyz: scattering coefficient of the interior medium; w: HG anisotropy. */
+  float4 volume_scatter;
 };
 
 /* Emission source. Photon indices are partitioned into per-light ranges on

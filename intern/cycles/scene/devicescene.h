@@ -89,9 +89,14 @@ class DeviceScene {
   /* Photon caustics (CyclesPlus). Uploaded per progressive batch from
    * PathTrace::set_photon_grid, not by a scene manager. */
   device_vector<float4> photon_pos;
+  device_vector<float4> photon_beam_start;
   device_vector<float4> photon_flux;
   device_vector<int> photon_cell_start;
   device_vector<uint> photon_shader_caster;
+  device_vector<float4> photon_volume_beam_start;
+  device_vector<float4> photon_volume_beam_end;
+  device_vector<float4> photon_volume_beam_flux;
+  device_vector<KernelPhotonBeamNode> photon_volume_beam_nodes;
 
   /* Volume. */
   device_vector<KernelOctreeNode> volume_tree_nodes;

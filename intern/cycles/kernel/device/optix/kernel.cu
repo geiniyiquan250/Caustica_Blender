@@ -40,6 +40,7 @@ extern "C" __global__ void __raygen__kernel_optix_photon_trace()
       (const ccl_global PhotonTraceTarget *)kernel_params.photon_targets,
       kernel_params.photon_num_targets,
       (const ccl_global PhotonTraceMaterial *)kernel_params.photon_materials,
+      kernel_params.photon_out_beam_start,
       kernel_params.photon_out_pos,
       kernel_params.photon_out_flux,
       kernel_params.photon_out_counter,

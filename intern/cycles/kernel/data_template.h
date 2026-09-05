@@ -213,8 +213,9 @@ KERNEL_STRUCT_MEMBER(integrator, float, filter_glossy)
  * batch; the arrays live in data_arrays.h. photon_radius is the constant
  * cell size and the per-pixel SPPM start radius; the per-pixel radii live
  * in the PASS_PHOTON_* film passes and only ever shrink below it. */
-KERNEL_STRUCT_MEMBER(integrator, int, use_photon_caustics)
-/* Whether only flagged materials cast photons. */
+  KERNEL_STRUCT_MEMBER(integrator, int, use_photon_caustics)
+  KERNEL_STRUCT_MEMBER(integrator, int, use_photon_volume_caustics)
+  /* Whether only flagged materials cast photons. */
 KERNEL_STRUCT_MEMBER(integrator, int, photon_casters_selected)
 /* Whether the photon map REPLACES the path-traced caustics of a material it
  * casts from, instead of adding to them. Off since 2026-08-25: replacing
@@ -229,6 +230,8 @@ KERNEL_STRUCT_MEMBER(integrator, int, photon_partition_pt)
 KERNEL_STRUCT_MEMBER(integrator, int, photon_shader_count)
 KERNEL_STRUCT_MEMBER(integrator, int, photon_num)
 KERNEL_STRUCT_MEMBER(integrator, int, photon_table_size)
+KERNEL_STRUCT_MEMBER(integrator, int, photon_volume_beam_num)
+KERNEL_STRUCT_MEMBER(integrator, int, photon_volume_beam_node_num)
 KERNEL_STRUCT_MEMBER(integrator, float, photon_radius)
 KERNEL_STRUCT_MEMBER(integrator, float, photon_inv_cell)
 KERNEL_STRUCT_MEMBER(integrator, int, photon_batch_steady)
@@ -249,7 +252,8 @@ KERNEL_STRUCT_MEMBER(integrator, int, photon_writer_sample)
 KERNEL_STRUCT_MEMBER(integrator, int, photon_batch_weight)
 /* Bitmask enabling the SPPM estimator heuristics (bit0 boundary-leak
  * suppression, bit1 per-gather clamp, bit2 batch weighting, bit3 radius
- * floor, bit4 maturity-faded display smoothing). Default all on (0x1F);
+ * floor, bit4 maturity-faded display smoothing, bit5 volume beam radiance
+ * estimate). Default all on (0x3F);
  * CYCLESPLUS_PHOTON_HEURISTICS overrides - mask 0 is textbook SPPM, the
  * ablation tool for estimator regressions. */
 KERNEL_STRUCT_MEMBER(integrator, int, photon_heuristic_mask)

@@ -851,6 +851,7 @@ ccl_gpu_kernel_postfix
 ccl_gpu_kernel(GPU_KERNEL_BLOCK_NUM_THREADS, GPU_KERNEL_MAX_REGISTERS)
     ccl_gpu_kernel_signature(photon_trace,
                              ccl_global float4 *out_pos,
+                             ccl_global float4 *out_beam_start,
                              ccl_global float4 *out_flux,
                              ccl_global uint *out_counter,
                              const ccl_global PhotonTraceLight *lights,
@@ -877,8 +878,9 @@ ccl_gpu_kernel(GPU_KERNEL_BLOCK_NUM_THREADS, GPU_KERNEL_MAX_REGISTERS)
                                             num_lights,
                                             targets,
                                             num_targets,
-                                            materials,
-                                            out_pos,
+                                             materials,
+                                             out_beam_start,
+                                             out_pos,
                                             out_flux,
                                             out_counter,
                                             out_capacity,
@@ -929,11 +931,13 @@ ccl_gpu_kernel_postfix
 
 ccl_gpu_kernel(GPU_KERNEL_BLOCK_NUM_THREADS, GPU_KERNEL_MAX_REGISTERS)
     ccl_gpu_kernel_signature(photon_bin_scatter,
-                             const ccl_global float4 *dep_pos,
-                             const ccl_global float4 *dep_flux,
+                              const ccl_global float4 *dep_pos,
+                              const ccl_global float4 *dep_beam_start,
+                              const ccl_global float4 *dep_flux,
                              ccl_global uint *cursor,
-                             ccl_global float4 *out_pos,
-                             ccl_global float4 *out_flux,
+                              ccl_global float4 *out_pos,
+                              ccl_global float4 *out_beam_start,
+                              ccl_global float4 *out_flux,
                              const int table_size,
                              const float inv_cell,
                              const int num_deposits)
@@ -955,6 +959,7 @@ ccl_gpu_kernel(GPU_KERNEL_BLOCK_NUM_THREADS, GPU_KERNEL_MAX_REGISTERS)
      * writer applies the same discipline (photon_deposit_write). */
     if (at < (uint)num_deposits) {
       out_pos[at] = p;
+      out_beam_start[at] = dep_beam_start[i];
       out_flux[at] = dep_flux[i];
     }
   }

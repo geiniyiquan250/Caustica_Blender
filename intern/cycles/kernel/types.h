@@ -27,6 +27,16 @@
 
 CCL_NAMESPACE_BEGIN
 
+/* Flat binary BVH node for finite volume photon beams. Interior nodes store
+ * child indices; leaves store -(first + 1) in left and a primitive count in
+ * right. Bounds already include the beam radius. */
+struct KernelPhotonBeamNode {
+  packed_float3 bmin;
+  int left;
+  packed_float3 bmax;
+  int right;
+};
+
 // NOLINTBEGIN
 
 /* Constants */

@@ -257,24 +257,29 @@ ccl_device_inline bool photon_light_link_match(KernelGlobals kg,
 /* Write one deposit and report the guiding yields. Returns the deposited
  * luminance (feeds the pilot's light-share measurement). */
 ccl_device_inline float photon_deposit_write(const float3 P,
-                                             const float3 Ng,
-                                             const float3 d,
-                                             const float3 power,
-                                             ccl_global float4 *out_pos,
-                                             ccl_global float4 *out_flux,
+                                              const float3 Ng,
+                                              const float3 d,
+                                              const float3 power,
+                                              const float3 beam_start,
+                                              ccl_global float4 *out_pos,
+                                              ccl_global float4 *out_beam_start,
+                                              ccl_global float4 *out_flux,
                                              ccl_global uint *out_counter,
                                              const int out_capacity,
                                              ccl_global float *target_yield,
                                              const int target_index,
+                                             const bool volume,
                                              const float lightgroup)
 {
   const float3 n_dep = (dot(d, Ng) < 0.0f) ? Ng : -Ng;
   const uint slot = atomic_fetch_and_add_uint32(out_counter, 1);
   if (slot < (uint)out_capacity) {
     out_pos[slot] = make_float4(P.x, P.y, P.z, photon_pack_normal(n_dep));
+    out_beam_start[slot] = make_float4(beam_start.x, beam_start.y, beam_start.z, 0.0f);
     /* w carries the emitting light's group (-1 = none), so the gather can
      * split the caustic per light group. Free: the slot was unused. */
-    out_flux[slot] = make_float4(power.x, power.y, power.z, lightgroup);
+    out_flux[slot] = make_float4(power.x, power.y, power.z,
+                                 lightgroup + (volume ? 0.5f : 0.0f));
   }
   const float lum = 0.2126f * power.x + 0.7152f * power.y + 0.0722f * power.z;
   if (target_yield != nullptr) {
@@ -313,9 +318,10 @@ ccl_device float photon_trace_single(KernelGlobals kg,
                                      const ccl_global PhotonTraceLight *lights,
                                      const int num_lights,
                                      const ccl_global PhotonTraceTarget *targets,
-                                     const int num_targets,
-                                     const ccl_global PhotonTraceMaterial *materials,
-                                     ccl_global float4 *out_pos,
+                                      const int num_targets,
+                                      const ccl_global PhotonTraceMaterial *materials,
+                                      ccl_global float4 *out_beam_start,
+                                      ccl_global float4 *out_pos,
                                      ccl_global float4 *out_flux,
                                      ccl_global uint *out_counter,
                                      const int out_capacity,
@@ -341,6 +347,13 @@ ccl_device float photon_trace_single(KernelGlobals kg,
 
   PhotonTraceRNG rng;
   photon_rng_seed(&rng, batch_seed + 7919ULL * (uint64_t)li, (uint64_t)local_index);
+
+  /* Roulette only the beam records, never the surface walk. Inverse inclusion
+   * probability preserves expected flux while bounding the volume workload. */
+  const float beam_probability = fminf(1.0f, 65536.0f / lights[num_lights - 1].index_end);
+  PhotonTraceRNG beam_rng;
+  photon_rng_seed(&beam_rng, batch_seed ^ 0xBEA641ULL, (uint64_t)photon_index);
+  const bool store_beams = photon_rng_uniform(&beam_rng) < beam_probability;
 
   /* Pick a caster target (binary search over cumulative weights). */
   const float r_pick = photon_rng_uniform(&rng);
@@ -535,6 +548,7 @@ ccl_device float photon_trace_single(KernelGlobals kg,
    * A tinted glass AND a tinted liquid would lose the glass's tint after
    * leaving the liquid - a real stack is the fix if that ever shows up. */
   float3 vol_sigma = make_float3(0.0f, 0.0f, 0.0f);
+  float3 vol_sigma_s = make_float3(0.0f, 0.0f, 0.0f);
   int vol_object = OBJECT_NONE;
   for (int bounce = 0; bounce < max_bounces; bounce++) {
     /* Ray guard: RT-core traversal of a non-finite or degenerate ray is
@@ -584,6 +598,31 @@ ccl_device float photon_trace_single(KernelGlobals kg,
       return lum_total;
     }
 
+    if (kernel_data.integrator.use_photon_volume_caustics &&
+        (vol_sigma_s.x > 0.0f || vol_sigma_s.y > 0.0f || vol_sigma_s.z > 0.0f)) {
+      /* Store the complete in-medium segment. The old stochastic point
+       * deposit carried a scattering-event weight and could not represent a
+       * continuous beam. The volume gather applies sigma_s and phase at the
+       * query point, so the stored flux is the incident beam power. */
+      const float3 beam_end = ray.P + ray.D * isect.t;
+      if (store_beams && spec > 0 && photon_light_link_match(kg, vol_object, L.emitter_object)) {
+        lum_total += photon_deposit_write(beam_end,
+                                          -d,
+                                          d,
+                                          power / beam_probability,
+                                          ray.P,
+                                          out_pos,
+                                          out_beam_start,
+                                          out_flux,
+                                          out_counter,
+                                          out_capacity,
+                                          target_yield,
+                                          lo,
+                                          true,
+                                          L.extra.y);
+      }
+    }
+
     if (vol_sigma.x > 0.0f || vol_sigma.y > 0.0f || vol_sigma.z > 0.0f) {
       power = power * make_float3(expf(-vol_sigma.x * isect.t),
                                   expf(-vol_sigma.y * isect.t),
@@ -596,6 +635,7 @@ ccl_device float photon_trace_single(KernelGlobals kg,
       const uint slot = atomic_fetch_and_add_uint32(out_counter, 1);
       if (slot < (uint)out_capacity) {
         out_pos[slot] = make_float4(hitP.x, hitP.y, hitP.z, photon_pack_normal(-d));
+        out_beam_start[slot] = make_float4(ray.P.x, ray.P.y, ray.P.z, 0.0f);
         /* -1, not 0: an ungrouped deposit, otherwise this diagnostic would
          * quietly pile up in whichever light group happens to be first. */
         out_flux[slot] = make_float4(power.x, power.y, power.z, -1.0f);
@@ -611,6 +651,7 @@ ccl_device float photon_trace_single(KernelGlobals kg,
       const uint slot = atomic_fetch_and_add_uint32(out_counter, 1);
       if (slot < (uint)out_capacity) {
         out_pos[slot] = make_float4(hitP.x, hitP.y, hitP.z, photon_pack_normal(-d));
+        out_beam_start[slot] = make_float4(ray.P.x, ray.P.y, ray.P.z, 0.0f);
         out_flux[slot] = make_float4(power.x, power.y, power.z, (float)bounce);
       }
     }
@@ -717,12 +758,15 @@ ccl_device float photon_trace_single(KernelGlobals kg,
                                             Ng,
                                             d,
                                             power,
+                                            P,
                                             out_pos,
+                                            out_beam_start,
                                             out_flux,
                                             out_counter,
                                             out_capacity,
                                             target_yield,
                                             lo,
+                                            false,
                                             L.extra.y);
         }
         /* Continue through ONE closure, picked exactly like Cycles itself
@@ -767,6 +811,7 @@ ccl_device float photon_trace_single(KernelGlobals kg,
           if (sd->flag & SD_BACKFACING) {
             if (isect.object == vol_object) {
               vol_sigma = make_float3(0.0f, 0.0f, 0.0f);
+              vol_sigma_s = make_float3(0.0f, 0.0f, 0.0f);
               vol_object = OBJECT_NONE;
             }
           }
@@ -775,6 +820,9 @@ ccl_device float photon_trace_single(KernelGlobals kg,
                 m.volume_sigma.x, m.volume_sigma.y, m.volume_sigma.z);
             if (s.x > 0.0f || s.y > 0.0f || s.z > 0.0f) {
               vol_sigma = s;
+              vol_sigma_s = make_float3(m.volume_scatter.x,
+                                        m.volume_scatter.y,
+                                        m.volume_scatter.z);
               vol_object = isect.object;
             }
           }
@@ -806,6 +854,25 @@ ccl_device float photon_trace_single(KernelGlobals kg,
         o = P;
         continue;
       }
+    }
+
+    if (m.kind == PHOTON_MAT_VOLUME) {
+      if (!kernel_data.integrator.use_photon_volume_caustics) {
+        o = P + d * 1e-4f;
+        continue;
+      }
+      if (dot(d, N) < 0.0f) {
+        vol_sigma = make_float3(m.volume_sigma.x, m.volume_sigma.y, m.volume_sigma.z);
+        vol_sigma_s = make_float3(m.volume_scatter.x, m.volume_scatter.y, m.volume_scatter.z);
+        vol_object = isect.object;
+      }
+      else if (isect.object == vol_object) {
+        vol_sigma = make_float3(0.0f, 0.0f, 0.0f);
+        vol_sigma_s = make_float3(0.0f, 0.0f, 0.0f);
+        vol_object = OBJECT_NONE;
+      }
+      o = P + d * 1e-4f;
+      continue;
     }
 
     if (m.kind == PHOTON_MAT_RECEIVER) {
@@ -842,14 +909,17 @@ ccl_device float photon_trace_single(KernelGlobals kg,
          * (flux already divides by p_pick above). */
         return lum_total + photon_deposit_write(P,
                                                 Ng,
-                                                d,
+                                                 d,
                                                 power,
+                                                P,
                                                 out_pos,
+                                                out_beam_start,
                                                 out_flux,
                                                 out_counter,
                                                 out_capacity,
                                                 target_yield,
                                                 lo,
+                                                false,
                                                 L.extra.y);
       }
       return lum_total;
@@ -893,11 +963,15 @@ ccl_device float photon_trace_single(KernelGlobals kg,
               m.volume_sigma.x, m.volume_sigma.y, m.volume_sigma.z);
           if (s.x > 0.0f || s.y > 0.0f || s.z > 0.0f) {
             vol_sigma = s;
+            vol_sigma_s = make_float3(m.volume_scatter.x,
+                                      m.volume_scatter.y,
+                                      m.volume_scatter.z);
             vol_object = isect.object;
           }
         }
         else if (isect.object == vol_object) {
           vol_sigma = make_float3(0.0f, 0.0f, 0.0f);
+          vol_sigma_s = make_float3(0.0f, 0.0f, 0.0f);
           vol_object = OBJECT_NONE;
         }
         if (m.rough > 0.001f) {

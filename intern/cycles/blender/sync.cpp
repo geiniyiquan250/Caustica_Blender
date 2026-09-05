@@ -415,6 +415,8 @@ void BlenderSync::sync_integrator(blender::ViewLayer &b_view_layer,
   const bool use_photons = photon_requested && !(photon_multi_device && photon_single_gpu);
 
   integrator->set_use_photon_caustics(use_photons);
+  integrator->set_use_photon_volume_caustics(
+      use_photons && get_boolean(cscene, "use_photon_volume_caustics"));
   integrator->set_photon_caustics_count(get_int(cscene, "photon_caustics_count"));
   integrator->set_photon_caustics_detail(get_float(cscene, "photon_caustics_detail"));
   /* 0 = ALL (every plausible material casts), 1 = SELECTED (flagged only). */

@@ -71,7 +71,8 @@ function(cuda_add_common_flags cuda_version arch in_flags out_flags)
   set(${out_flags} ${flags} PARENT_SCOPE)
 endfunction()
 
-if(WITH_CYCLES_CUDA_BINARIES)
+# OptiX also dispatches shader evaluation and film kernels through CUDA.
+if(WITH_CYCLES_CUDA_BINARIES AND (WITH_CYCLES_DEVICE_CUDA OR WITH_CYCLES_DEVICE_OPTIX))
   # 64 bit only
   set(CUDA_BITS 64)
 

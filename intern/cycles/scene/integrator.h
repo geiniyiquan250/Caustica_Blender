@@ -80,6 +80,7 @@ class Integrator : public Node {
   NODE_SOCKET_API(bool, caustics_reflective)
   NODE_SOCKET_API(bool, caustics_refractive)
   NODE_SOCKET_API(bool, use_photon_caustics)
+  NODE_SOCKET_API(bool, use_photon_volume_caustics)
   NODE_SOCKET_API(int, photon_caustics_count)
   NODE_SOCKET_API(float, photon_caustics_detail)
   /* CyclesPlus: only materials flagged "Cast Photon Caustics" cast photons

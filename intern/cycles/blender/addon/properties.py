@@ -655,6 +655,12 @@ class CyclesRenderSettings(bpy.types.PropertyGroup):
         default=False,
     )
 
+    use_photon_volume_caustics: BoolProperty(
+        name="Volume Caustics",
+        description="Add single-scattering photon caustics inside uniform volumes",
+        default=False,
+    )
+
     photon_caustics_count: IntProperty(
         name="Photon Count",
         description="Millions of photons per progressive pass. Caustics refine with every "

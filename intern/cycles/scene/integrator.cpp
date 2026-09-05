@@ -119,6 +119,7 @@ NODE_DEFINE(Integrator)
   SOCKET_BOOLEAN(caustics_reflective, "Reflective Caustics", true);
   SOCKET_BOOLEAN(caustics_refractive, "Refractive Caustics", true);
   SOCKET_BOOLEAN(use_photon_caustics, "Photon Caustics", false);
+  SOCKET_BOOLEAN(use_photon_volume_caustics, "Photon Volume Caustics", false);
   SOCKET_INT(photon_caustics_count, "Photon Caustics Count", 2);
   SOCKET_FLOAT(photon_caustics_detail, "Photon Caustics Detail", 1.0f);
   SOCKET_BOOLEAN(photon_casters_selected, "Photon Casters Selected", false);
@@ -276,6 +277,7 @@ void Integrator::device_update(Device *device, DeviceScene *dscene, Scene *scene
   kintegrator->caustics_reflective = caustics_reflective;
   kintegrator->caustics_refractive = caustics_refractive;
   kintegrator->use_photon_caustics = use_photon_caustics;
+  kintegrator->use_photon_volume_caustics = use_photon_volume_caustics;
   kintegrator->photon_casters_selected = photon_casters_selected;
 
   /* The photon map adds to the path-traced caustics rather than replacing

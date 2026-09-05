@@ -112,7 +112,10 @@ class PhotonMap {
    * into the render device's photon arrays (grid()->device_resident != 0).
    * Called by PathTrace::set_photon_grid between render works, after it
    * allocated the target arrays and uploaded the cell prefix table. */
-  bool scatter_published(device_ptr out_pos, device_ptr out_flux, device_ptr cell_start_device);
+  bool scatter_published(device_ptr out_pos,
+                         device_ptr out_beam_start,
+                         device_ptr out_flux,
+                         device_ptr cell_start_device);
 
  private:
   void launch_batch_async();

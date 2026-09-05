@@ -124,23 +124,24 @@ bool OptiXDeviceQueue::enqueue(DeviceKernel kernel,
   }
 
   if (kernel == DEVICE_KERNEL_PHOTON_TRACE) {
-    /* CyclesPlus: argument order matches the host DeviceKernelArguments in
-     * integrator/photon_map.cpp (trace_batch_gpu). */
-    set_launch_param(offsetof(KernelParamsOptiX, photon_out_pos), sizeof(device_ptr), 0);
-    set_launch_param(offsetof(KernelParamsOptiX, photon_out_flux), sizeof(device_ptr), 1);
-    set_launch_param(offsetof(KernelParamsOptiX, photon_out_counter), sizeof(device_ptr), 2);
-    set_launch_param(offsetof(KernelParamsOptiX, photon_lights), sizeof(device_ptr), 3);
-    set_launch_param(offsetof(KernelParamsOptiX, photon_num_lights), sizeof(int32_t), 4);
-    set_launch_param(offsetof(KernelParamsOptiX, photon_targets), sizeof(device_ptr), 5);
-    set_launch_param(offsetof(KernelParamsOptiX, photon_num_targets), sizeof(int32_t), 6);
-    set_launch_param(offsetof(KernelParamsOptiX, photon_materials), sizeof(device_ptr), 7);
-    set_launch_param(offsetof(KernelParamsOptiX, photon_batch_k), sizeof(int32_t), 8);
-    set_launch_param(offsetof(KernelParamsOptiX, photon_offset), sizeof(int32_t), 9);
-    set_launch_param(offsetof(KernelParamsOptiX, photon_max_bounces), sizeof(int32_t), 10);
-    set_launch_param(offsetof(KernelParamsOptiX, photon_debug_mode), sizeof(int32_t), 11);
-    set_launch_param(offsetof(KernelParamsOptiX, photon_out_capacity), sizeof(int32_t), 12);
-    /* Index 13 (work_size) comes from the launch dimension. */
-    set_launch_param(offsetof(KernelParamsOptiX, photon_target_yield), sizeof(device_ptr), 14);
+      /* CyclesPlus: argument order matches the host DeviceKernelArguments in
+       * integrator/photon_map.cpp (trace_batch_gpu). */
+      set_launch_param(offsetof(KernelParamsOptiX, photon_out_pos), sizeof(device_ptr), 0);
+      set_launch_param(offsetof(KernelParamsOptiX, photon_out_beam_start), sizeof(device_ptr), 1);
+      set_launch_param(offsetof(KernelParamsOptiX, photon_out_flux), sizeof(device_ptr), 2);
+      set_launch_param(offsetof(KernelParamsOptiX, photon_out_counter), sizeof(device_ptr), 3);
+      set_launch_param(offsetof(KernelParamsOptiX, photon_lights), sizeof(device_ptr), 4);
+      set_launch_param(offsetof(KernelParamsOptiX, photon_num_lights), sizeof(int32_t), 5);
+      set_launch_param(offsetof(KernelParamsOptiX, photon_targets), sizeof(device_ptr), 6);
+      set_launch_param(offsetof(KernelParamsOptiX, photon_num_targets), sizeof(int32_t), 7);
+      set_launch_param(offsetof(KernelParamsOptiX, photon_materials), sizeof(device_ptr), 8);
+      set_launch_param(offsetof(KernelParamsOptiX, photon_batch_k), sizeof(int32_t), 9);
+      set_launch_param(offsetof(KernelParamsOptiX, photon_offset), sizeof(int32_t), 10);
+      set_launch_param(offsetof(KernelParamsOptiX, photon_max_bounces), sizeof(int32_t), 11);
+      set_launch_param(offsetof(KernelParamsOptiX, photon_debug_mode), sizeof(int32_t), 12);
+      set_launch_param(offsetof(KernelParamsOptiX, photon_out_capacity), sizeof(int32_t), 13);
+      /* Index 14 (work_size) comes from the launch dimension. */
+      set_launch_param(offsetof(KernelParamsOptiX, photon_target_yield), sizeof(device_ptr), 15);
   }
 
   cuda_device_assert(cuda_device_, cuStreamSynchronize(cuda_stream_));
