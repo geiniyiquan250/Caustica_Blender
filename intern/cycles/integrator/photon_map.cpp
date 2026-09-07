@@ -11,6 +11,7 @@
  * unmodified scenes work without any material changes. */
 
 #include "integrator/photon_map.h"
+#include "util/caustics_profiler.h"
 #include "integrator/shader_eval.h"
 
 #include "device/device.h"
@@ -143,6 +144,7 @@ struct PhotonMaterial {
   float coat = 0.0f;
   float coat_rough = 0.0f;
   float coat_ior = 1.5f;
+  float dispersion_inv_abbe = 0.0f;
   float3 color = make_float3(1.0f, 1.0f, 1.0f);
   /* Accurate mode (Weg B): the classifier could not capture this material
    * exactly - the KERNEL photon walk runs the real surface shader at its
@@ -226,6 +228,13 @@ struct PhotonLight {
    * light instead of falling out of the shader (tester report 2026-08-25:
    * IES lamps lit as if the profile were not there). */
   int ies_slot = -1;
+  float3 initial_volume_sigma = make_float3(0.0f);
+  float3 initial_volume_scatter = make_float3(0.0f);
+};
+
+struct PhotonVolumeRegion {
+  float3 bmin, bmax;
+  float3 sigma, scatter;
 };
 
 /* Light group index for a photon source, or -1 for none. Reads the very map
@@ -254,6 +263,9 @@ struct PhotonDeposit {
   float3 pos, flux;
   float3 beam_start;
   float3 normal; /* surface normal, or volume direction toward the light */
+  /* Extinction of the medium carrying a volume beam. Surface deposits leave
+   * this at zero. */
+  float3 volume_sigma = make_float3(0.0f, 0.0f, 0.0f);
   /* Light group of the emitting light, -1 = none. Packed into flux.w when the
    * deposits are flattened, the same slot the kernel tracer uses. */
   int lightgroup = -1;
@@ -554,7 +566,9 @@ void trace_photon(const PhotonTraceScene &s,
                   vector<PhotonDeposit> &out,
                   const uint64_t link_membership = ~uint64_t(0),
                   const int lightgroup = -1,
-                  const float beam_probability = 1.0f)
+                  const float beam_probability = 1.0f,
+                  const float3 initial_volume_sigma = make_float3(0.0f),
+                  const float3 initial_volume_scatter = make_float3(0.0f))
 {
   PhotonRNG beam_rng;
   beam_rng.seed(rng.state ^ 0xBEA641ULL, rng.inc);
@@ -571,8 +585,8 @@ void trace_photon(const PhotonTraceScene &s,
    * vol_mat records which material put us there - see the vol_object note
    * in the kernel walk: a liquid modelled into the glass wall must not lose
    * its tint when the photon crosses that wall. */
-  float3 vol_sigma = make_float3(0.0f, 0.0f, 0.0f);
-  float3 vol_sigma_s = make_float3(0.0f, 0.0f, 0.0f);
+  float3 vol_sigma = initial_volume_sigma;
+  float3 vol_sigma_s = initial_volume_scatter;
   int vol_mat = -1;
   for (int b = 0; b < max_bounces; b++) {
     /* Ray guard, mirroring the kernel walk: degenerate rays (rare RNG
@@ -589,12 +603,35 @@ void trace_photon(const PhotonTraceScene &s,
     }
     const uint32_t t = h.tri;
     const float3 loc = o + d * (1e-4f + h.t);
+    /* Seed a medium when a specular photon starts inside a closed volume.
+     * Do this before the common segment record so inside and outside lights
+     * use exactly the same beam weighting and attenuation path. */
+    if (s.volume_caustics && spec > 0 && vol_sigma_s.x <= 0.0f && vol_sigma_s.y <= 0.0f &&
+        vol_sigma_s.z <= 0.0f)
+    {
+      const PhotonMaterial &boundary = s.mats[s.tri_mat[t]];
+      const float3 bv0 = s.verts[s.tri_v[3 * t]];
+      const float3 bv1 = s.verts[s.tri_v[3 * t + 1]];
+      const float3 bv2 = s.verts[s.tri_v[3 * t + 2]];
+      const float3 bnormal = normalize(cross(bv1 - bv0, bv2 - bv0));
+      if (boundary.kind == MAT_VOLUME && dot(d, bnormal) >= 0.0f) {
+        vol_sigma = boundary.volume_sigma;
+        vol_sigma_s = boundary.volume_sigma_s;
+        vol_mat = (int)s.tri_mat[t];
+      }
+    }
     if (s.volume_caustics && (vol_sigma_s.x > 0.0f || vol_sigma_s.y > 0.0f ||
                               vol_sigma_s.z > 0.0f) &&
         store_beams && spec > 0) {
       /* A volume photon is a complete segment with incident power. The
        * camera-side beam estimator evaluates scattering and attenuation. */
-      out.push_back({loc, power / beam_probability, o + d * 1e-4f, -d, lightgroup, true});
+      out.push_back({loc,
+                     power / beam_probability,
+                     o + d * 1e-4f,
+                     -d,
+                     vol_sigma,
+                     lightgroup,
+                     true});
     }
     if (vol_sigma.x > 0.0f || vol_sigma.y > 0.0f || vol_sigma.z > 0.0f) {
       const float seg = 1e-4f + h.t;
@@ -694,7 +731,13 @@ void trace_photon(const PhotonTraceScene &s,
       }
       if (spec > 0 && photon_link_match(s, t, link_membership)) {
         const float3 n_dep = (dot(d, ng) < 0.0f) ? ng : -ng;
-                  out.push_back({loc, power, loc, n_dep, lightgroup, false});
+                  out.push_back({loc,
+                                 power,
+                                 loc,
+                                 n_dep,
+                                 make_float3(0.0f),
+                                 lightgroup,
+                                 false});
       }
       return;
     }
@@ -773,6 +816,30 @@ const PhotonTarget *pick_target(const vector<PhotonTarget> &tg, PhotonRNG &rng, 
   return &tg.back();
 }
 
+/* Same balance weight as the device tracer; keep single-target paths unchanged. */
+float photon_target_balance_weight(const vector<PhotonTarget> &targets,
+                                   const PhotonTarget *selected,
+                                   const float selected_pdf,
+                                   const float3 origin,
+                                   const float3 direction,
+                                   const bool directional)
+{
+  if (targets.size() == 1) {
+    return 1.0f;
+  }
+  float mixture_pdf = selected_pdf;
+  float previous = 0.0f;
+  for (const PhotonTarget &target : targets) {
+    const float probability = target.wcum - previous;
+    previous = target.wcum;
+    if (&target != selected) {
+      mixture_pdf += probability *
+                     photon_target_pdf(target.c, target.r, origin, direction, directional);
+    }
+  }
+  return selected_pdf / mixture_pdf;
+}
+
 void emit_photons(const PhotonTraceScene &s,
                   const PhotonLight &L,
                   const vector<PhotonTarget> &tg,
@@ -825,8 +892,21 @@ void emit_photons(const PhotonTraceScene &s,
        * old ~50 m heuristic and the interim 10 km hack. */
       const float sd = (T->start_dist > 0.0f) ? T->start_dist : (T->r * 20.0f + 10.0f);
       const float3 start = T->c - d * sd + t1 * (rr * cosf(ang)) + t2 * (rr * sinf(ang));
-      const float flux = M_PI_F * T->r * T->r / ((float)n_total * p_pick);
-      trace_photon(s, rng, start, d, L.color * flux, max_bounces, out, L.link_membership, L.lightgroup, beam_probability);
+      const float flux = M_PI_F * T->r * T->r / ((float)n_total * p_pick) *
+                         photon_target_balance_weight(
+                             tg, T, p_pick / (M_PI_F * T->r * T->r), start, d, true);
+      trace_photon(s,
+                   rng,
+                   start,
+                   d,
+                   L.color * flux,
+                   max_bounces,
+                   out,
+                   L.link_membership,
+                   L.lightgroup,
+                   beam_probability,
+                   L.initial_volume_sigma,
+                   L.initial_volume_scatter);
     }
     else if (L.type == 1 || L.type == 2) { /* point / spot */
       const float inv4pi = 1.0f / (4.0f * M_PI_F);
@@ -855,8 +935,20 @@ void emit_photons(const PhotonTraceScene &s,
         continue;
       }
       const float omega = 2 * M_PI_F * (1.0f - cos_max);
-      const float flux = inv4pi * omega / ((float)n_total * p_pick);
-      trace_photon(s, rng, o, d, L.color * flux, max_bounces, out, L.link_membership, L.lightgroup, beam_probability);
+      const float flux = inv4pi * omega / ((float)n_total * p_pick) *
+                         photon_target_balance_weight(tg, T, p_pick / omega, o, d, false);
+      trace_photon(s,
+                   rng,
+                   o,
+                   d,
+                   L.color * flux,
+                   max_bounces,
+                   out,
+                   L.link_membership,
+                   L.lightgroup,
+                   beam_probability,
+                   L.initial_volume_sigma,
+                   L.initial_volume_scatter);
     }
     else { /* area */
       const float area = L.sx * L.sy * (L.shape ? M_PI_F / 4.0f : 1.0f);
@@ -898,8 +990,20 @@ void emit_photons(const PhotonTraceScene &s,
         continue;
       }
       const float omega = 2 * M_PI_F * (1.0f - cos_max);
-      const float flux = inv_pi_area * area * cl * omega / ((float)n_total * p_pick);
-      trace_photon(s, rng, o, d, L.color * flux, max_bounces, out, L.link_membership, L.lightgroup, beam_probability);
+      const float flux = inv_pi_area * area * cl * omega / ((float)n_total * p_pick) *
+                         photon_target_balance_weight(tg, T, p_pick / omega, o, d, false);
+      trace_photon(s,
+                   rng,
+                   o,
+                   d,
+                   L.color * flux,
+                   max_bounces,
+                   out,
+                   L.link_membership,
+                   L.lightgroup,
+                   beam_probability,
+                   L.initial_volume_sigma,
+                   L.initial_volume_scatter);
     }
   }
 }
@@ -1225,9 +1329,12 @@ float eval_weight_socket(const ShaderInput *in, ClassifyNotes &notes, const int 
 /* Share of the surface output this closure receives. `has_weight` is false
  * when the graph has no evaluable weight (not finalized yet): the caller
  * falls back to the legacy full weight. */
-float closure_weight(const ShaderNode *node, ClassifyNotes &notes, bool &has_weight)
+float closure_weight(const ShaderNode *node,
+                     ClassifyNotes &notes,
+                     bool &has_weight,
+                     const bool volume = false)
 {
-  const ShaderInput *win = find_input(node, "SurfaceMixWeight");
+  const ShaderInput *win = find_input(node, volume ? "VolumeMixWeight" : "SurfaceMixWeight");
   if (win == nullptr) {
     has_weight = false;
     return 1.0f;
@@ -1334,7 +1441,7 @@ VolumeProperties volume_properties(Shader *shader, ClassifyNotes &notes)
 
     ClassifyNotes wnotes;
     bool has_weight = false;
-    float w = closure_weight(node, wnotes, has_weight);
+    float w = closure_weight(node, wnotes, has_weight, true);
     if (!has_weight) {
       w = 1.0f;
     }
@@ -1440,6 +1547,7 @@ PhotonMaterial classify_shader_impl(Shader *shader, ClassifyNotes &notes)
     float ior = 1.45f;
     float rough = 0.0f;
     float transmission = 0.0f;
+    float dispersion_inv_abbe = 0.0f;
     float3 color = make_float3(1, 1, 1);
     ClassifyNotes notes;
   };
@@ -1611,6 +1719,16 @@ PhotonMaterial classify_shader_impl(Shader *shader, ClassifyNotes &notes)
       c.w = w;
       c.notes = wnotes;
       c.ior = find_float_input(node, "IOR", 1.45f);
+      const float dispersion_scale = std::clamp(
+          find_float_input(node, "Transmission Dispersion Scale", 0.0f), 0.0f, 1.0f);
+      const float abbe_number = std::max(
+          find_float_input(node, "Transmission Dispersion Abbe Number", 20.0f), 0.0f);
+      c.dispersion_inv_abbe = (abbe_number > 0.0f) ? dispersion_scale / abbe_number : 0.0f;
+      if (input_is_linked(node, "Transmission Dispersion Scale") ||
+          input_is_linked(node, "Transmission Dispersion Abbe Number"))
+      {
+        c.notes.flag(1, "textured dispersion - handled by the accurate photon path");
+      }
       c.rough = find_float_input(node, "Roughness", 0.0f);
       /* Principled transmission tints refraction with sqrt(base color) per
        * interface, so the through-transmission of solid glass equals the
@@ -1704,11 +1822,6 @@ PhotonMaterial classify_shader_impl(Shader *shader, ClassifyNotes &notes)
     }
   }
 
-  if (has_transparent && !has_solid) {
-    m.kind = MAT_SKIP;
-    return m;
-  }
-
   m.coat = std::min(coat_sum, 1.0f);
   if (coat_best > 0.0f) {
     m.coat_rough = coat_rough;
@@ -1732,6 +1845,15 @@ PhotonMaterial classify_shader_impl(Shader *shader, ClassifyNotes &notes)
     }
   }
 
+  /* A transparent surface mixed with a volume is the standard Cycles setup
+   * for a volume object. Keep it on the dedicated volume walk so the boundary
+   * enters and exits the medium instead of being discarded as a pure helper. */
+  if (has_transparent && !has_solid) {
+    const bool has_volume = max(m.volume_sigma.x, max(m.volume_sigma.y, m.volume_sigma.z)) > 0.0f;
+    m.kind = has_volume ? MAT_VOLUME : MAT_SKIP;
+    return m;
+  }
+
   if (cands.empty()) {
     return m; /* receiver (diffuse floor etc.) */
   }
@@ -1752,6 +1874,7 @@ PhotonMaterial classify_shader_impl(Shader *shader, ClassifyNotes &notes)
 
   m.kind = best->kind;
   m.ior = best->ior;
+  m.dispersion_inv_abbe = best->dispersion_inv_abbe;
   m.rough = best->rough;
   m.color = best->color;
   const float w = std::min(best->w, 1.0f);
@@ -1808,6 +1931,7 @@ void demote_to_receiver(PhotonMaterial &m)
     const float transmission = was_glass ? 1.0f : m.transmission;
     const float rough = m.rough;
     const float ior = m.ior;
+    const float dispersion_inv_abbe = m.dispersion_inv_abbe;
     const float transparent = m.transparent;
     const float3 color = m.color;
     m = PhotonMaterial();
@@ -1817,6 +1941,7 @@ void demote_to_receiver(PhotonMaterial &m)
     m.transparent = transparent;
     if (was_glass) {
       m.ior = ior;
+      m.dispersion_inv_abbe = dispersion_inv_abbe;
     }
   }
   /* Demoted material = path tracing keeps its caustics (per-material gate),
@@ -1877,7 +2002,7 @@ PhotonMaterial classify_shader(Shader *shader,
     return env ? atoi(env) : 1;
   }();
   if (accurate_env != 0) {
-    m.accurate = (accurate_env == 2 || notes.level > 0) ? 1 : 0;
+    m.accurate = (accurate_env == 2 || notes.level > 0 || m.kind == MAT_GLASS) ? 1 : 0;
   }
   return m;
 }
@@ -2213,6 +2338,7 @@ bool extract_scene(Scene *scene,
    * replaced by this exact per-target distance). */
   float3 scene_bmin = make_float3(1e30f, 1e30f, 1e30f);
   float3 scene_bmax = make_float3(-1e30f, -1e30f, -1e30f);
+  vector<PhotonVolumeRegion> volume_regions;
 
   /* Geometry + materials. */
   for (Object *object : scene->objects) {
@@ -2331,6 +2457,7 @@ bool extract_scene(Scene *scene,
     /* One photon material per used shader of this mesh. */
     vector<int32_t> shader_to_mat;
     bool any_caster = false;
+    bool volume_region_recorded = false;
     for (Node *snode : mesh->get_used_shaders()) {
       stat_shaders++;
       Shader *sh = static_cast<Shader *>(snode);
@@ -2352,6 +2479,15 @@ bool extract_scene(Scene *scene,
       }
       shader_to_mat.push_back((int32_t)ps.mats.size());
       ps.mats.push_back(m);
+      if (!volume_region_recorded && object->bounds.valid() &&
+          (m.volume_sigma_s.x > 0.0f || m.volume_sigma_s.y > 0.0f ||
+           m.volume_sigma_s.z > 0.0f)) {
+        volume_regions.push_back({object->bounds.min,
+                                  object->bounds.max,
+                                  m.volume_sigma,
+                                  m.volume_sigma_s});
+        volume_region_recorded = true;
+      }
       /* Accurate materials become aim targets ONLY on hidden-specular
        * evidence (textured transmission/metallic). Making every accurate
        * material a target turned large diffuse receivers into giant aim
@@ -2623,6 +2759,28 @@ bool extract_scene(Scene *scene,
     }
   }
 
+  /* A point/area emitter can be born inside a closed volume. In that case
+   * there is no volume boundary hit before the first glass event, so carry
+   * the medium into the photon walk from the emission point. */
+  if (ps.volume_caustics && !volume_regions.empty()) {
+    for (PhotonLight &light : lights) {
+      if (light.type == 0) {
+        continue; /* sun/world positions are angular or synthetic */
+      }
+      for (const PhotonVolumeRegion &region : volume_regions) {
+        const float3 p = light.pos;
+        const float eps = 1e-4f;
+        if (p.x >= region.bmin.x - eps && p.x <= region.bmax.x + eps &&
+            p.y >= region.bmin.y - eps && p.y <= region.bmax.y + eps &&
+            p.z >= region.bmin.z - eps && p.z <= region.bmax.z + eps) {
+          light.initial_volume_sigma = region.sigma;
+          light.initial_volume_scatter = region.scatter;
+          break;
+        }
+      }
+    }
+  }
+
   if ((!kernel_trace && ps.tri_v.empty()) || lights.empty() || targets.empty()) {
     LOG_WARNING << string_printf(
         "CyclesPlus photon map: setup incomplete: tris=%zu usable_lights=%zu casters=%zu "
@@ -2737,10 +2895,12 @@ struct PhotonMapData {
     vector<float4> pos;
     vector<float4> beam_start;
     vector<float4> flux;
+    vector<float4> beam_sigma;
     vector<int> cell_start;
     vector<float4> volume_beam_start;
     vector<float4> volume_beam_end;
     vector<float4> volume_beam_flux;
+    vector<float4> volume_beam_sigma;
     vector<KernelPhotonBeamNode> volume_beam_nodes;
     PhotonGrid grid;
     bool valid = false;
@@ -2751,6 +2911,7 @@ struct PhotonMapData {
     unique_ptr<device_vector<float4>> dep_pos_dev;
     unique_ptr<device_vector<float4>> dep_beam_start_dev;
     unique_ptr<device_vector<float4>> dep_flux_dev;
+    unique_ptr<device_vector<float4>> dep_beam_sigma_dev;
   };
   Storage buf[2];
   int front = 0;
@@ -2791,6 +2952,7 @@ struct PhotonMapData {
   unique_ptr<device_vector<float4>> d_pos;
   unique_ptr<device_vector<float4>> d_beam_start;
   unique_ptr<device_vector<float4>> d_flux;
+  unique_ptr<device_vector<float4>> d_beam_sigma;
   unique_ptr<device_vector<uint>> d_counter;
   /* Device-resident binning: per-cell counts (reused as the scatter cursors
    * after the host consumed them into the prefix table). */
@@ -2803,6 +2965,7 @@ struct PhotonMapData {
   unique_ptr<device_vector<float4>> d_sorted_pos;
   unique_ptr<device_vector<float4>> d_sorted_beam_start;
   unique_ptr<device_vector<float4>> d_sorted_flux;
+  unique_ptr<device_vector<float4>> d_sorted_beam_sigma;
   unique_ptr<device_vector<int>> d_cell_start_dev;
   /* Target guiding (Stufe 1a): per-target deposited luminance of the current
    * generation (kernel atomicAdd) and its exponential moving average. The
@@ -3129,6 +3292,14 @@ void fill_kernel_light(const PhotonLight &L,
   kl.axis = make_float4(L.axis.x, L.axis.y, L.axis.z, L.sx);
   /* extra.y = light group index, -1 = none (see PhotonTraceLight). */
   kl.extra = make_float4(L.sy, (float)L.lightgroup, (float)L.ies_slot, 0.0f);
+  kl.initial_volume_sigma = make_float4(L.initial_volume_sigma.x,
+                                        L.initial_volume_sigma.y,
+                                        L.initial_volume_sigma.z,
+                                        0.0f);
+  kl.initial_volume_scatter = make_float4(L.initial_volume_scatter.x,
+                                          L.initial_volume_scatter.y,
+                                          L.initial_volume_scatter.z,
+                                          0.0f);
 }
 
 /* Drain the null stream before launching photon kernels. Pageable HtoD
@@ -3142,6 +3313,7 @@ void fill_kernel_light(const PhotonLight &L,
  * counter is a microsecond-cheap full barrier. */
 void drain_null_stream(PhotonMapData &d)
 {
+  CCL_PHOTON_PROFILE_SCOPE("photon.drain_null_stream", &d);
   if (d.d_counter && d.d_counter->device_pointer) {
     d.d_counter->copy_from_device();
   }
@@ -3165,6 +3337,7 @@ void arm_target_yield(PhotonMapData &d)
 /* Fold the generation's yield into the EMA. */
 void harvest_target_yield(PhotonMapData &d)
 {
+  CCL_PHOTON_PROFILE_SCOPE("photon.target_yield_readback", &d);
   const size_t n = d.targets.size();
   if (n == 0 || !d.d_target_yield || d.d_target_yield->size() != n) {
     return;
@@ -3193,6 +3366,7 @@ void harvest_target_yield(PhotonMapData &d)
  * any resulting shares: every light normalizes flux by its own count. */
 bool measure_light_shares_gpu(PhotonMapData &d)
 {
+  CCL_PHOTON_PROFILE_SCOPE("photon.gpu_light_pilot", &d);
   const int pilot_photons = 20000;
   const size_t num_lights = d.lights.size();
   d.light_share.assign(num_lights, 0.0f);
@@ -3224,12 +3398,15 @@ bool measure_light_shares_gpu(PhotonMapData &d)
   device_vector<float4> pilot_pos(device, "photon_pilot_pos", MEM_READ_WRITE);
   device_vector<float4> pilot_beam_start(device, "photon_pilot_beam_start", MEM_READ_WRITE);
   device_vector<float4> pilot_flux(device, "photon_pilot_flux", MEM_READ_WRITE);
+  device_vector<float4> pilot_beam_sigma(device, "photon_pilot_beam_sigma", MEM_READ_WRITE);
   memset(pilot_pos.alloc(1), 0, sizeof(float4));
   pilot_pos.copy_to_device();
   memset(pilot_beam_start.alloc(1), 0, sizeof(float4));
   pilot_beam_start.copy_to_device();
   memset(pilot_flux.alloc(1), 0, sizeof(float4));
   pilot_flux.copy_to_device();
+  memset(pilot_beam_sigma.alloc(1), 0, sizeof(float4));
+  pilot_beam_sigma.copy_to_device();
 
   vector<PhotonTraceTarget> targets = build_guided_targets(d);
   memcpy(d.d_targets->alloc(targets.size()), targets.data(),
@@ -3242,6 +3419,7 @@ bool measure_light_shares_gpu(PhotonMapData &d)
   const device_ptr pos_ptr = pilot_pos.device_pointer;
   const device_ptr beam_start_ptr = pilot_beam_start.device_pointer;
   const device_ptr flux_ptr = pilot_flux.device_pointer;
+  const device_ptr beam_sigma_ptr = pilot_beam_sigma.device_pointer;
   const device_ptr counter_ptr = d.d_counter->device_pointer;
   const device_ptr targets_ptr = d.d_targets->device_pointer;
   const device_ptr mats_ptr = d.d_materials->device_pointer;
@@ -3270,6 +3448,7 @@ bool measure_light_shares_gpu(PhotonMapData &d)
     const DeviceKernelArguments args(&pos_ptr,
                                      &beam_start_ptr,
                                      &flux_ptr,
+                                     &beam_sigma_ptr,
                                      &counter_ptr,
                                      &lights_ptr,
                                      &one,
@@ -3303,13 +3482,16 @@ bool measure_light_shares_gpu(PhotonMapData &d)
 void build_volume_beam_bvh(const float4 *dep_pos,
                            const float4 *dep_beam_start,
                            const float4 *dep_flux,
+                           const float4 *dep_sigma,
                            const size_t total,
                            const float radius,
                            PhotonMapData::Storage &out)
 {
+  CCL_PHOTON_PROFILE_SCOPE("volume.beam_bvh_build", &out, total);
   out.volume_beam_start.clear();
   out.volume_beam_end.clear();
   out.volume_beam_flux.clear();
+  out.volume_beam_sigma.clear();
   out.volume_beam_nodes.clear();
   for (size_t i = 0; i < total; i++) {
     if (photon_deposit_is_volume(dep_flux[i].w)) {
@@ -3329,6 +3511,7 @@ void build_volume_beam_bvh(const float4 *dep_pos,
         out.volume_beam_start.push_back(make_float4(start.x, start.y, start.z, t0 * beam_length));
         out.volume_beam_end.push_back(make_float4(end.x, end.y, end.z, 0.0f));
         out.volume_beam_flux.push_back(dep_flux[i]);
+        out.volume_beam_sigma.push_back(dep_sigma[i]);
       }
     }
   }
@@ -3401,20 +3584,25 @@ void build_volume_beam_bvh(const float4 *dep_pos,
   };
   build(0, order.size());
 
-  vector<float4> sorted_start, sorted_end, sorted_flux;
+  vector<float4> sorted_start, sorted_end, sorted_flux, sorted_sigma;
   sorted_start.reserve(order.size());
   sorted_end.reserve(order.size());
   sorted_flux.reserve(order.size());
+  sorted_sigma.reserve(order.size());
   for (const int index : order) {
     sorted_start.push_back(out.volume_beam_start[index]);
     sorted_end.push_back(out.volume_beam_end[index]);
     sorted_flux.push_back(out.volume_beam_flux[index]);
+    sorted_sigma.push_back(out.volume_beam_sigma[index]);
   }
   out.volume_beam_start.swap(sorted_start);
   out.volume_beam_end.swap(sorted_end);
   out.volume_beam_flux.swap(sorted_flux);
+  out.volume_beam_sigma.swap(sorted_sigma);
   LOG_INFO << "CyclesPlus volume beams: " << order.size() << " segments, "
            << out.volume_beam_nodes.size() << " BVH nodes";
+  photon_profile_value("volume.built_segments", &out, order.size());
+  photon_profile_value("volume.built_nodes", &out, out.volume_beam_nodes.size());
 }
 
 /* Bin packed deposits (pos.w = packed normal) into the spatial hash. Shared
@@ -3422,10 +3610,12 @@ void build_volume_beam_bvh(const float4 *dep_pos,
 size_t bin_packed_deposits(const float4 *dep_pos,
                            const float4 *dep_beam_start,
                            const float4 *dep_flux,
+                           const float4 *dep_sigma,
                            const size_t total,
                            const float radius,
                            PhotonMapData::Storage &out)
 {
+  CCL_PHOTON_PROFILE_SCOPE("photon.cpu_binning", &out, total);
   if (total == 0) {
     return 0;
   }
@@ -3453,19 +3643,22 @@ size_t bin_packed_deposits(const float4 *dep_pos,
   out.pos.resize(total);
   out.beam_start.resize(total);
   out.flux.resize(total);
+  out.beam_sigma.resize(total);
   vector<int> cursor(out.cell_start.begin(), out.cell_start.end() - 1);
   for (size_t i = 0; i < total; i++) {
     const int at = cursor[bucket_of(dep_pos[i])]++;
     out.pos[at] = dep_pos[i];
     out.beam_start[at] = dep_beam_start[i];
     out.flux[at] = dep_flux[i];
+    out.beam_sigma[at] = dep_sigma[i];
   }
 
-  build_volume_beam_bvh(dep_pos, dep_beam_start, dep_flux, total, safe_radius, out);
+  build_volume_beam_bvh(dep_pos, dep_beam_start, dep_flux, dep_sigma, total, safe_radius, out);
 
   out.grid.pos = out.pos.data();
   out.grid.beam_start = out.beam_start.data();
   out.grid.flux = out.flux.data();
+  out.grid.beam_sigma = out.beam_sigma.data();
   out.grid.cell_start = out.cell_start.data();
   out.grid.num_photons = (int)total;
   out.grid.table_size = table_size;
@@ -3474,6 +3667,7 @@ size_t bin_packed_deposits(const float4 *dep_pos,
   out.grid.volume_beam_start = out.volume_beam_start.data();
   out.grid.volume_beam_end = out.volume_beam_end.data();
   out.grid.volume_beam_flux = out.volume_beam_flux.data();
+  out.grid.volume_beam_sigma = out.volume_beam_sigma.data();
   out.grid.volume_beam_nodes = out.volume_beam_nodes.data();
   out.grid.num_volume_beams = (int)out.volume_beam_start.size();
   out.grid.num_volume_beam_nodes = (int)out.volume_beam_nodes.size();
@@ -3483,6 +3677,7 @@ size_t bin_packed_deposits(const float4 *dep_pos,
   out.grid.dep_pos_device = 0;
   out.grid.dep_beam_start_device = 0;
   out.grid.dep_flux_device = 0;
+  out.grid.dep_beam_sigma_device = 0;
   out.grid.owner = nullptr;
   out.valid = true;
   return total;
@@ -3512,10 +3707,12 @@ bool scatter_device_to_host(PhotonMapData &d,
                              const device_ptr dep_pos_ptr,
                              const device_ptr dep_beam_start_ptr,
                              const device_ptr dep_flux_ptr,
-                            const int total,
+                             const device_ptr dep_beam_sigma_ptr,
+                             const int total,
                             const uint table_size,
                             const float inv_cell)
 {
+  CCL_PHOTON_PROFILE_SCOPE("photon.scatter_and_readback", &d, total);
   Device *device = d.trace_device;
   if (device == nullptr || !d.gpu_queue || !d.d_cell_count) {
     return false;
@@ -3528,6 +3725,8 @@ bool scatter_device_to_host(PhotonMapData &d,
         device, "photon_sorted_beam_start", MEM_READ_WRITE);
     d.d_sorted_flux = make_unique<device_vector<float4>>(
         device, "photon_sorted_flux", MEM_READ_WRITE);
+    d.d_sorted_beam_sigma = make_unique<device_vector<float4>>(
+        device, "photon_sorted_beam_sigma", MEM_READ_WRITE);
     d.d_cell_start_dev = make_unique<device_vector<int>>(
         device, "photon_cell_start_dev", MEM_READ_WRITE);
   }
@@ -3543,6 +3742,8 @@ bool scatter_device_to_host(PhotonMapData &d,
     d.d_sorted_beam_start->copy_to_device();
     memset(d.d_sorted_flux->alloc(cap), 0, sizeof(float4) * cap);
     d.d_sorted_flux->copy_to_device();
+    memset(d.d_sorted_beam_sigma->alloc(cap), 0, sizeof(float4) * cap);
+    d.d_sorted_beam_sigma->copy_to_device();
   }
   const size_t start_cap = std::max((size_t)table_size + 1, d.d_cell_start_dev->size());
   int *start_dst = d.d_cell_start_dev->alloc(start_cap);
@@ -3555,6 +3756,7 @@ bool scatter_device_to_host(PhotonMapData &d,
   const device_ptr out_pos = d.d_sorted_pos->device_pointer;
   const device_ptr out_beam_start = d.d_sorted_beam_start->device_pointer;
   const device_ptr out_flux = d.d_sorted_flux->device_pointer;
+  const device_ptr out_beam_sigma = d.d_sorted_beam_sigma->device_pointer;
   const int itable = (int)table_size;
 
   const DeviceKernelArguments iargs(&start_ptr, &cursor_ptr, &itable);
@@ -3563,12 +3765,14 @@ bool scatter_device_to_host(PhotonMapData &d,
     return false;
   }
   const DeviceKernelArguments sargs(&dep_pos_ptr,
-                                    &dep_beam_start_ptr,
-                                    &dep_flux_ptr,
-                                    &cursor_ptr,
+                                     &dep_beam_start_ptr,
+                                     &dep_flux_ptr,
+                                     &dep_beam_sigma_ptr,
+                                     &cursor_ptr,
                                     &out_pos,
-                                    &out_beam_start,
-                                    &out_flux,
+                                     &out_beam_start,
+                                     &out_flux,
+                                     &out_beam_sigma,
                                     &itable,
                                     &inv_cell,
                                     &total);
@@ -3580,16 +3784,21 @@ bool scatter_device_to_host(PhotonMapData &d,
   }
 
   /* Bounded by the deposit count, not the buffer capacity. */
+  PhotonProfileScope readback("photon.deposit_readback_bytes", &d, double(total) * sizeof(float4) * 4);
   d.d_sorted_pos->copy_from_device(0, total, 1);
   d.d_sorted_beam_start->copy_from_device(0, total, 1);
   d.d_sorted_flux->copy_from_device(0, total, 1);
+  d.d_sorted_beam_sigma->copy_from_device(0, total, 1);
+  readback.finish();
 
   out.pos.resize(total);
   out.beam_start.resize(total);
   out.flux.resize(total);
+  out.beam_sigma.resize(total);
   memcpy(out.pos.data(), d.d_sorted_pos->data(), sizeof(float4) * total);
   memcpy(out.beam_start.data(), d.d_sorted_beam_start->data(), sizeof(float4) * total);
   memcpy(out.flux.data(), d.d_sorted_flux->data(), sizeof(float4) * total);
+  memcpy(out.beam_sigma.data(), d.d_sorted_beam_sigma->data(), sizeof(float4) * total);
   return true;
 }
 
@@ -3603,6 +3812,8 @@ size_t trace_batch_gpu(PhotonMapData &d,
                        const std::atomic<bool> *cancel,
                        PhotonMapData::Storage &out)
 {
+  CCL_PHOTON_PROFILE_SCOPE("photon.sync_gpu_batch", &d, num_photons);
+  photon_profile_value("photon.batch_index", &d, k);
   out.valid = false;
   const float safe_radius = photon_safe_radius(radius);
   const int max_bounces = 12;
@@ -3750,6 +3961,8 @@ size_t trace_batch_gpu(PhotonMapData &d,
           device, "photon_dep_beam_start", MEM_READ_WRITE);
       out.dep_flux_dev = make_unique<device_vector<float4>>(
           device, "photon_dep_flux", MEM_READ_WRITE);
+      out.dep_beam_sigma_dev = make_unique<device_vector<float4>>(
+          device, "photon_dep_beam_sigma", MEM_READ_WRITE);
       /* Host-zero + copy_to_device, NEVER zero_to_device before kernel use:
        * cuMemsetD8 runs on the NULL stream, our queue is NON_BLOCKING, so
        * the memset races the kernels and wipes their writes (the cold
@@ -3764,12 +3977,15 @@ size_t trace_batch_gpu(PhotonMapData &d,
       out.dep_beam_start_dev->copy_to_device();
       memset(out.dep_flux_dev->alloc(chunk), 0, sizeof(float4) * chunk);
       out.dep_flux_dev->copy_to_device();
+      memset(out.dep_beam_sigma_dev->alloc(chunk), 0, sizeof(float4) * chunk);
+      out.dep_beam_sigma_dev->copy_to_device();
     }
     for (int attempt = 0; attempt < 3; attempt++) {
       const int capacity = (int)out.dep_pos_dev->size();
       const device_ptr dep_pos_ptr = out.dep_pos_dev->device_pointer;
       const device_ptr dep_beam_start_ptr = out.dep_beam_start_dev->device_pointer;
       const device_ptr dep_flux_ptr = out.dep_flux_dev->device_pointer;
+      const device_ptr dep_beam_sigma_ptr = out.dep_beam_sigma_dev->device_pointer;
       d.d_counter->data()[0] = 0;
       d.d_counter->copy_to_device();
       arm_target_yield(d);
@@ -3784,6 +4000,7 @@ size_t trace_batch_gpu(PhotonMapData &d,
         const DeviceKernelArguments args(&dep_pos_ptr,
                                          &dep_beam_start_ptr,
                                          &dep_flux_ptr,
+                                         &dep_beam_sigma_ptr,
                                          &counter_ptr,
                                          &lights_ptr,
                                          &num_lights,
@@ -3810,6 +4027,7 @@ size_t trace_batch_gpu(PhotonMapData &d,
       d.d_counter->copy_from_device();
       const uint counted = d.d_counter->data()[0];
       if (counted > (uint)capacity) {
+        photon_profile_value("photon.staging_overflow", &d, counted);
         const int new_cap = (int)(counted + counted / 4);
         /* Host-zero + copy: see the staging-creation comment (memset race). */
         memset(out.dep_pos_dev->alloc(new_cap), 0, sizeof(float4) * new_cap);
@@ -3818,6 +4036,8 @@ size_t trace_batch_gpu(PhotonMapData &d,
         out.dep_beam_start_dev->copy_to_device();
         memset(out.dep_flux_dev->alloc(new_cap), 0, sizeof(float4) * new_cap);
         out.dep_flux_dev->copy_to_device();
+        memset(out.dep_beam_sigma_dev->alloc(new_cap), 0, sizeof(float4) * new_cap);
+        out.dep_beam_sigma_dev->copy_to_device();
         LOG_INFO << "CyclesPlus photon map: deposit staging grown to " << new_cap
                  << ", retracing generation";
         continue;
@@ -3932,7 +4152,14 @@ size_t trace_batch_gpu(PhotonMapData &d,
       if (!device_resident) {
         /* Multi device: sort here and ship the result, since the gather runs
          * on cards this one cannot write to. */
-        if (!scatter_device_to_host(d, out, dep_pos_ptr, dep_beam_start_ptr, dep_flux_ptr, total, table_size,
+        if (!scatter_device_to_host(d,
+                                    out,
+                                    dep_pos_ptr,
+                                    dep_beam_start_ptr,
+                                    dep_flux_ptr,
+                                    dep_beam_sigma_ptr,
+                                    total,
+                                    table_size,
                                     inv_cell))
         {
           return 0;
@@ -3940,6 +4167,7 @@ size_t trace_batch_gpu(PhotonMapData &d,
         build_volume_beam_bvh(out.pos.data(),
                               out.beam_start.data(),
                               out.flux.data(),
+                              out.beam_sigma.data(),
                               total,
                               safe_radius,
                               out);
@@ -3954,6 +4182,7 @@ size_t trace_batch_gpu(PhotonMapData &d,
         out.grid.volume_beam_start = out.volume_beam_start.data();
         out.grid.volume_beam_end = out.volume_beam_end.data();
         out.grid.volume_beam_flux = out.volume_beam_flux.data();
+        out.grid.volume_beam_sigma = out.volume_beam_sigma.data();
         out.grid.volume_beam_nodes = out.volume_beam_nodes.data();
         out.grid.num_volume_beams = (int)out.volume_beam_start.size();
         out.grid.num_volume_beam_nodes = (int)out.volume_beam_nodes.size();
@@ -3961,6 +4190,7 @@ size_t trace_batch_gpu(PhotonMapData &d,
         out.grid.dep_pos_device = 0;
         out.grid.dep_beam_start_device = 0;
         out.grid.dep_flux_device = 0;
+        out.grid.dep_beam_sigma_device = 0;
         out.grid.owner = nullptr;
         out.valid = true;
         return (size_t)total;
@@ -3981,6 +4211,7 @@ size_t trace_batch_gpu(PhotonMapData &d,
       out.grid.dep_pos_device = (uint64_t)dep_pos_ptr;
       out.grid.dep_beam_start_device = (uint64_t)dep_beam_start_ptr;
       out.grid.dep_flux_device = (uint64_t)dep_flux_ptr;
+      out.grid.dep_beam_sigma_device = (uint64_t)dep_beam_sigma_ptr;
       out.grid.owner = d.self;
       out.valid = true;
       return (size_t)total;
@@ -3995,6 +4226,8 @@ size_t trace_batch_gpu(PhotonMapData &d,
     d.d_beam_start = make_unique<device_vector<float4>>(
         device, "photon_trace_beam_start", MEM_READ_WRITE);
     d.d_flux = make_unique<device_vector<float4>>(device, "photon_trace_flux", MEM_READ_WRITE);
+    d.d_beam_sigma = make_unique<device_vector<float4>>(
+        device, "photon_trace_beam_sigma", MEM_READ_WRITE);
     /* Host-zero + copy: see the memset-race comments (trace_batch_gpu). */
     memset(d.d_pos->alloc(chunk), 0, sizeof(float4) * chunk);
     d.d_pos->copy_to_device();
@@ -4002,14 +4235,18 @@ size_t trace_batch_gpu(PhotonMapData &d,
     d.d_beam_start->copy_to_device();
     memset(d.d_flux->alloc(chunk), 0, sizeof(float4) * chunk);
     d.d_flux->copy_to_device();
+    memset(d.d_beam_sigma->alloc(chunk), 0, sizeof(float4) * chunk);
+    d.d_beam_sigma->copy_to_device();
   }
-  vector<float4> all_pos, all_beam_start, all_flux;
+  vector<float4> all_pos, all_beam_start, all_flux, all_beam_sigma;
   all_pos.reserve((size_t)num_photons / 2);
   all_beam_start.reserve((size_t)num_photons / 2);
   all_flux.reserve((size_t)num_photons / 2);
+  all_beam_sigma.reserve((size_t)num_photons / 2);
   const device_ptr pos_ptr = d.d_pos->device_pointer;
   const device_ptr beam_start_ptr = d.d_beam_start->device_pointer;
   const device_ptr flux_ptr = d.d_flux->device_pointer;
+  const device_ptr beam_sigma_ptr = d.d_beam_sigma->device_pointer;
   arm_target_yield(d);
   const device_ptr yield_ptr = d.d_target_yield ? d.d_target_yield->device_pointer : 0;
   drain_null_stream(d);
@@ -4026,6 +4263,7 @@ size_t trace_batch_gpu(PhotonMapData &d,
     const DeviceKernelArguments args(&pos_ptr,
                                      &beam_start_ptr,
                                      &flux_ptr,
+                                     &beam_sigma_ptr,
                                      &counter_ptr,
                                      &lights_ptr,
                                      &num_lights,
@@ -4061,10 +4299,13 @@ size_t trace_batch_gpu(PhotonMapData &d,
       d.d_pos->copy_from_device(0, count, 1);
       d.d_beam_start->copy_from_device(0, count, 1);
       d.d_flux->copy_from_device(0, count, 1);
+      d.d_beam_sigma->copy_from_device(0, count, 1);
       all_pos.insert(all_pos.end(), d.d_pos->data(), d.d_pos->data() + count);
       all_beam_start.insert(
           all_beam_start.end(), d.d_beam_start->data(), d.d_beam_start->data() + count);
       all_flux.insert(all_flux.end(), d.d_flux->data(), d.d_flux->data() + count);
+      all_beam_sigma.insert(
+          all_beam_sigma.end(), d.d_beam_sigma->data(), d.d_beam_sigma->data() + count);
     }
   }
 
@@ -4118,7 +4359,13 @@ size_t trace_batch_gpu(PhotonMapData &d,
   }
 
   return bin_packed_deposits(
-      all_pos.data(), all_beam_start.data(), all_flux.data(), all_pos.size(), radius, out);
+      all_pos.data(),
+      all_beam_start.data(),
+      all_flux.data(),
+      all_beam_sigma.data(),
+      all_pos.size(),
+      radius,
+      out);
 }
 
 /* ------------------------------------------------------------------
@@ -4137,6 +4384,8 @@ bool gpu_async_begin(PhotonMapData &d,
                      const uint64_t k,
                      PhotonMapData::Storage &out)
 {
+  CCL_PHOTON_PROFILE_SCOPE("photon.async_setup", &d, num_photons);
+  photon_profile_value("photon.batch_index", &d, k);
   const float safe_radius = photon_safe_radius(radius);
   static const bool bin_disable = getenv("CYCLESPLUS_PHOTON_GPU_BIN_DISABLE") != nullptr;
   static const int debug_mode = []() {
@@ -4231,6 +4480,8 @@ bool gpu_async_begin(PhotonMapData &d,
                                                                 MEM_READ_WRITE);
     out.dep_flux_dev = make_unique<device_vector<float4>>(device, "photon_dep_flux",
                                                           MEM_READ_WRITE);
+    out.dep_beam_sigma_dev = make_unique<device_vector<float4>>(
+        device, "photon_dep_beam_sigma", MEM_READ_WRITE);
     /* Host-zero + copy: see the memset-race comments (trace_batch_gpu). */
     memset(out.dep_pos_dev->alloc(chunk), 0, sizeof(float4) * chunk);
     out.dep_pos_dev->copy_to_device();
@@ -4238,6 +4489,8 @@ bool gpu_async_begin(PhotonMapData &d,
     out.dep_beam_start_dev->copy_to_device();
     memset(out.dep_flux_dev->alloc(chunk), 0, sizeof(float4) * chunk);
     out.dep_flux_dev->copy_to_device();
+    memset(out.dep_beam_sigma_dev->alloc(chunk), 0, sizeof(float4) * chunk);
+    out.dep_beam_sigma_dev->copy_to_device();
   }
   d.d_counter->data()[0] = 0;
   d.d_counter->copy_to_device();
@@ -4251,6 +4504,7 @@ bool gpu_async_begin(PhotonMapData &d,
   d.gpu_radius = safe_radius;
   d.gpu_batch_k = (int)k;
   d.gpu_begin_time = time_dt();
+  photon_profile_value("photon.batch_launched_photons", &d, total_photons);
   return true;
 }
 
@@ -4258,6 +4512,8 @@ bool gpu_async_begin(PhotonMapData &d,
  * work, so the finish sync (one work later) never stalls noticeably. */
 void gpu_async_step(PhotonMapData &d, PhotonMapData::Storage &out)
 {
+  CCL_PHOTON_PROFILE_SCOPE("photon.async_submit", &d);
+  photon_profile_value("photon.batch_index", &d, d.gpu_batch_k);
   /* OptiX throttle: target ~8ms launches capped at 2M photons instead of
    * ~30ms/8M - the display engine gets serviced between launches, which is
    * what keeps the driver's OptiX side alive under hour-long sessions.
@@ -4294,6 +4550,7 @@ void gpu_async_step(PhotonMapData &d, PhotonMapData::Storage &out)
   const device_ptr dep_pos_ptr = out.dep_pos_dev->device_pointer;
   const device_ptr dep_beam_start_ptr = out.dep_beam_start_dev->device_pointer;
   const device_ptr dep_flux_ptr = out.dep_flux_dev->device_pointer;
+  const device_ptr dep_beam_sigma_ptr = out.dep_beam_sigma_dev->device_pointer;
   const device_ptr counter_ptr = d.d_counter->device_pointer;
   const device_ptr lights_ptr = d.d_lights->device_pointer;
   const device_ptr targets_ptr = d.d_targets->device_pointer;
@@ -4307,6 +4564,7 @@ void gpu_async_step(PhotonMapData &d, PhotonMapData::Storage &out)
   const DeviceKernelArguments args(&dep_pos_ptr,
                                    &dep_beam_start_ptr,
                                    &dep_flux_ptr,
+                                   &dep_beam_sigma_ptr,
                                    &counter_ptr,
                                    &lights_ptr,
                                    &num_lights,
@@ -4326,6 +4584,7 @@ void gpu_async_step(PhotonMapData &d, PhotonMapData::Storage &out)
     return;
   }
   d.gpu_off += n;
+  photon_profile_value("photon.chunk_photons", &d, n);
 }
 
 /* All chunks enqueued: synchronize (the stream is typically already done),
@@ -4334,14 +4593,21 @@ void gpu_async_step(PhotonMapData &d, PhotonMapData::Storage &out)
  * inflight, exact-size staging). */
 size_t gpu_async_finish(PhotonMapData &d, PhotonMapData::Storage &out)
 {
+  CCL_PHOTON_PROFILE_SCOPE("photon.async_finish", &d);
+  PhotonProfileScope trace_wait("photon.trace_wait", &d);
   if (!d.gpu_queue->synchronize()) {
     LOG_WARNING << "CyclesPlus photon map: async trace synchronize failed";
     return 0;
   }
+  trace_wait.finish();
+  PhotonProfileScope counter_read("photon.counter_readback", &d);
   d.d_counter->copy_from_device();
+  counter_read.finish();
   const uint counted = d.d_counter->data()[0];
+  photon_profile_value("photon.batch_deposits", &d, counted);
   const int capacity = (int)out.dep_pos_dev->size();
   if (counted > (uint)capacity) {
+    photon_profile_value("photon.staging_overflow", &d, counted);
     const int new_cap = (int)(counted + counted / 4);
     /* Host-zero + copy: see the memset-race comments (trace_batch_gpu). */
     memset(out.dep_pos_dev->alloc(new_cap), 0, sizeof(float4) * new_cap);
@@ -4350,6 +4616,8 @@ size_t gpu_async_finish(PhotonMapData &d, PhotonMapData::Storage &out)
     out.dep_beam_start_dev->copy_to_device();
     memset(out.dep_flux_dev->alloc(new_cap), 0, sizeof(float4) * new_cap);
     out.dep_flux_dev->copy_to_device();
+    memset(out.dep_beam_sigma_dev->alloc(new_cap), 0, sizeof(float4) * new_cap);
+    out.dep_beam_sigma_dev->copy_to_device();
     d.d_counter->data()[0] = 0;
     d.d_counter->copy_to_device();
     arm_target_yield(d);
@@ -4403,6 +4671,7 @@ size_t gpu_async_finish(PhotonMapData &d, PhotonMapData::Storage &out)
                                 dep_pos_ptr,
                                 out.dep_beam_start_dev->device_pointer,
                                 out.dep_flux_dev->device_pointer,
+                                out.dep_beam_sigma_dev->device_pointer,
                                 total,
                                 table_size,
                                 inv_cell))
@@ -4412,6 +4681,7 @@ size_t gpu_async_finish(PhotonMapData &d, PhotonMapData::Storage &out)
     build_volume_beam_bvh(out.pos.data(),
                           out.beam_start.data(),
                           out.flux.data(),
+                          out.beam_sigma.data(),
                           total,
                           d.gpu_radius,
                           out);
@@ -4426,6 +4696,7 @@ size_t gpu_async_finish(PhotonMapData &d, PhotonMapData::Storage &out)
     out.grid.volume_beam_start = out.volume_beam_start.data();
     out.grid.volume_beam_end = out.volume_beam_end.data();
     out.grid.volume_beam_flux = out.volume_beam_flux.data();
+    out.grid.volume_beam_sigma = out.volume_beam_sigma.data();
     out.grid.volume_beam_nodes = out.volume_beam_nodes.data();
     out.grid.num_volume_beams = (int)out.volume_beam_start.size();
     out.grid.num_volume_beam_nodes = (int)out.volume_beam_nodes.size();
@@ -4433,6 +4704,7 @@ size_t gpu_async_finish(PhotonMapData &d, PhotonMapData::Storage &out)
     out.grid.dep_pos_device = 0;
     out.grid.dep_beam_start_device = 0;
     out.grid.dep_flux_device = 0;
+    out.grid.dep_beam_sigma_device = 0;
     out.grid.owner = nullptr;
     out.valid = true;
     return (size_t)total;
@@ -4452,6 +4724,7 @@ size_t gpu_async_finish(PhotonMapData &d, PhotonMapData::Storage &out)
   out.grid.dep_pos_device = (uint64_t)dep_pos_ptr;
   out.grid.dep_beam_start_device = (uint64_t)out.dep_beam_start_dev->device_pointer;
   out.grid.dep_flux_device = (uint64_t)out.dep_flux_dev->device_pointer;
+  out.grid.dep_beam_sigma_device = (uint64_t)out.dep_beam_sigma_dev->device_pointer;
   out.grid.owner = d.self;
   out.valid = true;
   return (size_t)total;
@@ -4465,6 +4738,7 @@ void gpu_async_abort(PhotonMapData &d)
   if (!d.gpu_inflight) {
     return;
   }
+  CCL_PHOTON_PROFILE_SCOPE("photon.abort_wait", &d, d.gpu_off);
   if (d.gpu_queue) {
     d.gpu_queue->synchronize();
   }
@@ -4483,6 +4757,7 @@ size_t trace_batch(const PhotonTraceScene &ps,
                    const std::atomic<bool> *cancel,
                    PhotonMapData::Storage &out)
 {
+  CCL_PHOTON_PROFILE_SCOPE("photon.cpu_batch", &ps, num_photons);
   out.valid = false;
 
   const int max_bounces = 12;
@@ -4540,10 +4815,11 @@ size_t trace_batch(const PhotonTraceScene &ps,
   }
 
   /* Flatten into packed arrays and bin (shared with the GPU path). */
-  vector<float4> dep_pos, dep_beam_start, dep_flux;
+  vector<float4> dep_pos, dep_beam_start, dep_flux, dep_sigma;
   dep_pos.reserve(total);
   dep_beam_start.reserve(total);
   dep_flux.reserve(total);
+  dep_sigma.reserve(total);
   for (const vector<PhotonDeposit> &r : results) {
     for (const PhotonDeposit &dep : r) {
       dep_pos.push_back(
@@ -4554,9 +4830,11 @@ size_t trace_batch(const PhotonTraceScene &ps,
                       dep.flux.y,
                       dep.flux.z,
                       (float)dep.lightgroup + (dep.volume ? 0.5f : 0.0f)));
+      dep_sigma.push_back(make_float4(dep.volume_sigma.x, dep.volume_sigma.y, dep.volume_sigma.z, 0.0f));
     }
   }
-  return bin_packed_deposits(dep_pos.data(), dep_beam_start.data(), dep_flux.data(), total, radius, out);
+  return bin_packed_deposits(
+      dep_pos.data(), dep_beam_start.data(), dep_flux.data(), dep_sigma.data(), total, radius, out);
 }
 
 }  // namespace
@@ -4569,8 +4847,10 @@ PhotonMap::PhotonMap() : data_(make_unique<PhotonMapData>())
 bool PhotonMap::scatter_published(const device_ptr out_pos,
                                   const device_ptr out_beam_start,
                                   const device_ptr out_flux,
+                                  const device_ptr out_beam_sigma,
                                   const device_ptr cell_start_device)
 {
+  CCL_PHOTON_PROFILE_SCOPE("photon.scatter_published", this);
   /* Scatter the front generation's device-resident deposits into the render
    * device's photon arrays. Called from PathTrace::set_photon_grid between
    * render works; runs on the map's own queue (same pattern as the trace).
@@ -4587,6 +4867,7 @@ bool PhotonMap::scatter_published(const device_ptr out_pos,
   const device_ptr dep_pos_ptr = (device_ptr)front.grid.dep_pos_device;
   const device_ptr dep_beam_start_ptr = (device_ptr)front.grid.dep_beam_start_device;
   const device_ptr dep_flux_ptr = (device_ptr)front.grid.dep_flux_device;
+  const device_ptr dep_beam_sigma_ptr = (device_ptr)front.grid.dep_beam_sigma_device;
   const device_ptr cursor_ptr = d.d_cell_count->device_pointer;
   /* The caller just uploaded the prefix table (pageable HtoD): make sure the
    * DMA landed before cursor_init reads it (null-stream vs non-blocking
@@ -4601,10 +4882,12 @@ bool PhotonMap::scatter_published(const device_ptr out_pos,
   const DeviceKernelArguments sargs(&dep_pos_ptr,
                                     &dep_beam_start_ptr,
                                     &dep_flux_ptr,
+                                    &dep_beam_sigma_ptr,
                                     &cursor_ptr,
                                     &out_pos,
                                     &out_beam_start,
                                     &out_flux,
+                                    &out_beam_sigma,
                                     &table_size,
                                     &inv_cell,
                                     &total);
@@ -4725,11 +5008,13 @@ void PhotonMap::restart(Scene *scene,
                         const bool interactive,
                         const bool world_changed)
 {
+  CCL_PHOTON_PROFILE_SCOPE("photon.restart", this, photons_per_batch);
   PhotonMapData &d = *data_;
   gpu_async_abort(d);
   /* Abort the in-flight refinement batch instead of waiting for it. */
   d.cancel = true;
   if (d.worker.joinable()) {
+    CCL_PHOTON_PROFILE_SCOPE("photon.worker_join", &d);
     d.worker.join();
   }
   d.cancel = false;
@@ -4825,6 +5110,16 @@ void PhotonMap::restart(Scene *scene,
       scene, progress, d.scene, d.lights, d.targets, d.world_cache, d.world_cache_valid,
       d.gpu_trace);
   const double t_extract = time_dt() - t_extract0;
+  if (photon_profile_enabled()) {
+    photon_profile_record("host", "photon.extract_scene", this, t_extract0, t_extract * 1000.0);
+    photon_profile_value("photon.scene_lights", &d, d.lights.size());
+    photon_profile_value("photon.scene_targets", &d, d.targets.size());
+    photon_profile_value("photon.scene_shaders", &d, scene->shaders.size());
+    photon_profile_value("photon.scene_objects", &d, scene->objects.size());
+    photon_profile_value("photon.volume_enabled", &d, d.scene.volume_caustics);
+    photon_profile_value("photon.gpu_trace", &d, d.gpu_trace);
+    photon_profile_value("photon.detail", &d, detail);
+  }
   d.photons_per_batch = std::max(photons_per_batch, 1000);
   d.iteration = 0;
 
@@ -4858,6 +5153,7 @@ void PhotonMap::restart(Scene *scene,
       PhotonTraceMaterial &km = d.gpu_materials[shader->id];
       km.kind = m.kind;
       km.ior = m.ior;
+      km.dispersion_inv_abbe = m.dispersion_inv_abbe;
       km.rough = m.rough;
       km.transmission = m.transmission;
       km.coat = m.coat;
@@ -4955,7 +5251,10 @@ void PhotonMap::restart(Scene *scene,
     if (dist > 0.0f && dist < FLT_MAX) {
       const float px_world = 2.0f * dist * tanf(0.5f * cam->get_fov()) /
                              (float)cam->get_full_width();
-      r0 = 16.0f * px_world / std::max(detail, 0.1f);
+       /* Curved casters need a broader kernel than a flat receiver: otherwise
+        * the projected triangle pattern remains visible even after smoothing.
+        * Use a quarter-power response for a conservative surface estimate. */
+       r0 = 16.0f * px_world / powf(std::max(detail, 0.1f), 0.25f);
     }
   }
   if (!(r0 > 0.0f) || !isfinite_safe(r0)) {
@@ -5103,6 +5402,8 @@ void PhotonMap::restart(Scene *scene,
 
 void PhotonMap::advance(const bool allow_launch, const bool generation_pending)
 {
+  CCL_PHOTON_PROFILE_SCOPE("photon.advance", this);
+  photon_profile_value("photon.generation_pending", this, generation_pending);
   PhotonMapData &d = *data_;
 
   if (d.gpu_trace) {
@@ -5127,6 +5428,10 @@ void PhotonMap::advance(const bool allow_launch, const bool generation_pending)
       d.gpu_inflight = false;
       if (total > 0) {
         const double elapsed = time_dt() - d.gpu_begin_time;
+        if (photon_profile_enabled()) {
+          photon_profile_record("host", "photon.async_publication_latency", &d,
+                                d.gpu_begin_time, elapsed * 1000.0, d.gpu_num_photons);
+        }
         if (elapsed > 1e-4) {
           /* This wall clock spans every render work the generation
            * overlapped, so it is a LOWER BOUND on the trace rate, not a

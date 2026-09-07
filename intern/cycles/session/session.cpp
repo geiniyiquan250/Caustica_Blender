@@ -8,6 +8,7 @@
 #include "device/device.h"
 #include "integrator/path_trace.h"
 #include "integrator/photon_map.h"
+#include "util/caustics_profiler.h"
 #include "scene/background.h"
 #include "scene/camera.h"
 #include "scene/image.h"
@@ -126,6 +127,7 @@ Session::~Session()
   scene.reset();
   denoise_device_.reset();
   device.reset();
+  photon_profile_flush();
 
   /* Stop task scheduler. */
   TaskScheduler::exit();
@@ -342,9 +344,12 @@ bool Session::is_session_thread_rendering()
 
 RenderWork Session::run_update_for_next_iteration()
 {
+  CCL_PHOTON_PROFILE_SCOPE("session.update_iteration", this);
   RenderWork render_work;
 
+  PhotonProfileScope scene_lock_wait("session.scene_lock_wait", this);
   thread_scoped_lock scene_lock(scene->mutex);
+  scene_lock_wait.finish();
 
   /* Photon caustics (CyclesPlus): kill the in-flight async photon stream
    * BEFORE buffers are reset and before the scene update swaps device data
@@ -361,6 +366,13 @@ RenderWork Session::run_update_for_next_iteration()
 
   /* Update scene */
   const bool reset_scene = update_scene(delayed_reset_.do_reset);
+  if (photon_profile_enabled()) {
+    photon_profile_value("session.reset_buffers", this, reset_buffers);
+    photon_profile_value("session.reset_scene", this, reset_scene);
+    photon_profile_value("session.background", this, params.background);
+    photon_profile_value("session.caustics_enabled", this,
+                         scene->integrator->get_use_photon_caustics());
+  }
 
   /* Photon caustics: scene changes reset the extra-sample budget before the
    * sample target below is computed from it. */
@@ -543,6 +555,8 @@ RenderWork Session::run_update_for_next_iteration()
         }
         const bool navigating = photon_navigating_ ||
                                 (time_dt() - photon_nav_reset_time_) < 0.25;
+        photon_profile_value("session.navigation_with_tail", this, navigating);
+        photon_profile_value("session.photon_launch_allowed", this, allow_launch && !navigating);
         photon_map_->advance(allow_launch && !navigating,
                              path_trace_->photon_gather_pending());
       }
@@ -561,14 +575,17 @@ RenderWork Session::run_update_for_next_iteration()
      * get consumed at fresh points along the way. The first batch of extras
      * runs back to back, after that only a new photon generation justifies
      * another sample. */
+    const bool viewport_navigating = photon_navigating_ ||
+                                     (time_dt() - photon_nav_reset_time_) < 0.25;
     if (use_photon_caustics && !render_work && !params.background && photon_map_->grid() &&
-        !progress.get_cancel())
+        !viewport_navigating && !progress.get_cancel())
     {
       const bool smoothing = photon_extra_samples_ < PHOTON_EXTRA_SAMPLES_SMOOTH;
       const bool new_generation = path_trace_->photon_gather_pending() &&
                                   photon_extra_samples_ < PHOTON_EXTRA_SAMPLES_MAX;
       if (smoothing || new_generation) {
         photon_extra_samples_++;
+        photon_profile_value("session.extra_samples", this, photon_extra_samples_);
         render_scheduler_.set_sample_params(params.samples + photon_extra_samples_,
                                             params.use_sample_subset,
                                             params.sample_subset_offset,
@@ -730,6 +747,7 @@ int2 Session::get_effective_tile_size() const
 
 bool Session::delayed_reset_buffer_params()
 {
+  CCL_PHOTON_PROFILE_SCOPE("session.buffer_reset", this);
   /* Reset buffer parameters, delayed from when we got the reset call so we can complete
    * rendering the sample. Otherwise e.g. viewport navigation might reset without ever
    * finishing anything. */
@@ -790,6 +808,7 @@ void Session::update_buffers_for_params()
 
 void Session::reset(const SessionParams &session_params, const BufferParams &buffer_params)
 {
+  CCL_PHOTON_PROFILE_SCOPE("session.reset_request_and_cancel", this);
   {
     const thread_scoped_lock reset_lock(delayed_reset_.mutex);
     const thread_scoped_lock pause_lock(pause_mutex_);
@@ -863,10 +882,14 @@ void Session::set_pause(bool pause)
 
 void Session::set_navigating(bool navigating)
 {
+  if (photon_profile_enabled() && photon_navigating_ != navigating) {
+    photon_profile_value("session.navigation", this, navigating);
+  }
   eviction_manager_.set_navigating(navigating);
   /* Photon caustics: the session thread reads this to pause photon
    * generations while the viewport navigates (see the advance() call). */
   photon_navigating_ = navigating;
+  path_trace_->set_photon_navigating(navigating);
 }
 
 void Session::set_output_driver(unique_ptr<OutputDriver> driver)
@@ -914,6 +937,7 @@ void Session::wait()
 
 bool Session::update_scene(const bool reset_samples)
 {
+  CCL_PHOTON_PROFILE_SCOPE("session.scene_update", this);
   /* Update number of samples in the integrator.
    * Ideally this would need to happen once in `Session::set_samples()`, but the issue there is
    * the initial configuration when Session is created where the `set_samples()` is not used.

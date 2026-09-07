@@ -9,6 +9,7 @@
 #  include "device/cuda/device_impl.h"
 #  include "device/cuda/graphics_interop.h"
 #  include "device/cuda/kernel.h"
+#  include "util/caustics_profiler.h"
 
 CCL_NAMESPACE_BEGIN
 
@@ -24,7 +25,104 @@ CUDADeviceQueue::CUDADeviceQueue(CUDADevice *device)
 CUDADeviceQueue::~CUDADeviceQueue()
 {
   const CUDAContextScope scope(cuda_device_);
+  caustics_profile_collect();
+  for (CausticsProfileEvent &event : caustics_profile_events_) {
+    if (event.begin) {
+      cuEventDestroy(event.begin);
+    }
+    if (event.end) {
+      cuEventDestroy(event.end);
+    }
+  }
   cuStreamDestroy(cuda_stream_);
+}
+
+bool CUDADeviceQueue::caustics_profile_read(CausticsProfileEvent &event)
+{
+  if (!event.pending) {
+    return true;
+  }
+  const CUresult status = cuEventQuery(event.end);
+  if (status == CUDA_ERROR_NOT_READY) {
+    return false;
+  }
+  float milliseconds = 0.0f;
+  const CUresult result = status == CUDA_SUCCESS ?
+                              cuEventElapsedTime(&milliseconds, event.begin, event.end) : status;
+  if (result == CUDA_SUCCESS) {
+    photon_profile_record("gpu", device_kernel_as_string(event.kernel), this,
+                           event.submitted, milliseconds, event.work_size);
+  }
+  else {
+    photon_profile_value("gpu.event_error", this, result);
+    caustics_profile_failed_ = true;
+  }
+  event.pending = false;
+  return true;
+}
+
+void CUDADeviceQueue::caustics_profile_begin(DeviceKernel kernel, const int work_size)
+{
+  if (!photon_profile_enabled() || caustics_profile_failed_) {
+    return;
+  }
+  if (caustics_profile_events_.empty()) {
+    caustics_profile_events_.resize(128);
+    photon_profile_value("gpu.device_type", this, cuda_device_->info.type);
+    photon_profile_value("gpu.device_index", this, cuda_device_->cuDevId);
+  }
+  const size_t index = caustics_profile_cursor_++ % caustics_profile_events_.size();
+  CausticsProfileEvent &event = caustics_profile_events_[index];
+  if (!caustics_profile_read(event)) {
+    photon_profile_value("gpu.timing_dropped_pool_busy", this, 1);
+    return;
+  }
+  if (caustics_profile_failed_) {
+    return;
+  }
+  CUresult result = CUDA_SUCCESS;
+  if (!event.begin) {
+    result = cuEventCreate(&event.begin, CU_EVENT_DEFAULT);
+    if (result == CUDA_SUCCESS) {
+      result = cuEventCreate(&event.end, CU_EVENT_DEFAULT);
+    }
+  }
+  if (result == CUDA_SUCCESS) {
+    result = cuEventRecord(event.begin, cuda_stream_);
+  }
+  if (result != CUDA_SUCCESS) {
+    photon_profile_value("gpu.event_error", this, result);
+    caustics_profile_failed_ = true;
+    return;
+  }
+  event.kernel = kernel;
+  event.work_size = work_size;
+  event.submitted = time_dt();
+  caustics_profile_active_ = int(index);
+}
+
+void CUDADeviceQueue::caustics_profile_end()
+{
+  if (caustics_profile_active_ < 0) {
+    return;
+  }
+  CausticsProfileEvent &event = caustics_profile_events_[caustics_profile_active_];
+  const CUresult result = cuEventRecord(event.end, cuda_stream_);
+  if (result == CUDA_SUCCESS) {
+    event.pending = true;
+  }
+  else {
+    photon_profile_value("gpu.event_error", this, result);
+    caustics_profile_failed_ = true;
+  }
+  caustics_profile_active_ = -1;
+}
+
+void CUDADeviceQueue::caustics_profile_collect()
+{
+  for (CausticsProfileEvent &event : caustics_profile_events_) {
+    caustics_profile_read(event);
+  }
 }
 
 int CUDADeviceQueue::num_concurrent_states(const size_t state_size) const
@@ -64,6 +162,7 @@ int CUDADeviceQueue::num_concurrent_busy_states(const size_t /*state_size*/) con
 
 void CUDADeviceQueue::init_execution()
 {
+  CCL_PHOTON_PROFILE_SCOPE("gpu.context_init_wait", this);
   /* Synchronize all textures and memory copies before executing task.
    * Use default stream (nullptr) since that's what we will synchronize
    * here to ensure all scene data is copied. */
@@ -125,6 +224,7 @@ bool CUDADeviceQueue::enqueue(DeviceKernel kernel,
   }
 
   /* Launch kernel. */
+  caustics_profile_begin(kernel, work_size);
   assert_success(cuLaunchKernel(cuda_kernel.function,
                                 num_blocks,
                                 1,
@@ -138,6 +238,8 @@ bool CUDADeviceQueue::enqueue(DeviceKernel kernel,
                                 nullptr),
                  "enqueue");
 
+  caustics_profile_end();
+
   debug_enqueue_end();
 
   return !(cuda_device_->have_error());
@@ -150,7 +252,10 @@ bool CUDADeviceQueue::synchronize()
   }
 
   const CUDAContextScope scope(cuda_device_);
+  PhotonProfileScope wait("gpu.queue_wait", this);
   assert_success(cuStreamSynchronize(cuda_stream_), "synchronize");
+  wait.finish();
+  caustics_profile_collect();
 
   debug_synchronize();
 

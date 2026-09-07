@@ -6,6 +6,7 @@
 
 #  include "device/optix/queue.h"
 #  include "device/optix/device_impl.h"
+#  include "util/caustics_profiler.h"
 
 #  define __KERNEL_OPTIX__
 #  include "kernel/device/optix/globals.h"
@@ -94,7 +95,9 @@ bool OptiXDeviceQueue::enqueue(DeviceKernel kernel,
      * non-blocking stream does not order against the null stream, so
      * without the sync the DtoD below could capture a torn KernelData -
      * including a torn BVH traversable handle. */
+    PhotonProfileScope null_wait("optix.photon_null_stream_wait", this);
     cuda_device_assert(cuda_device_, cuStreamSynchronize(nullptr));
+    null_wait.finish();
     cuda_device_assert(cuda_device_,
                        cuMemcpyDtoDAsync(launch_params_ptr,
                                          optix_device->launch_params.device_pointer,
@@ -129,22 +132,25 @@ bool OptiXDeviceQueue::enqueue(DeviceKernel kernel,
       set_launch_param(offsetof(KernelParamsOptiX, photon_out_pos), sizeof(device_ptr), 0);
       set_launch_param(offsetof(KernelParamsOptiX, photon_out_beam_start), sizeof(device_ptr), 1);
       set_launch_param(offsetof(KernelParamsOptiX, photon_out_flux), sizeof(device_ptr), 2);
-      set_launch_param(offsetof(KernelParamsOptiX, photon_out_counter), sizeof(device_ptr), 3);
-      set_launch_param(offsetof(KernelParamsOptiX, photon_lights), sizeof(device_ptr), 4);
-      set_launch_param(offsetof(KernelParamsOptiX, photon_num_lights), sizeof(int32_t), 5);
-      set_launch_param(offsetof(KernelParamsOptiX, photon_targets), sizeof(device_ptr), 6);
-      set_launch_param(offsetof(KernelParamsOptiX, photon_num_targets), sizeof(int32_t), 7);
-      set_launch_param(offsetof(KernelParamsOptiX, photon_materials), sizeof(device_ptr), 8);
-      set_launch_param(offsetof(KernelParamsOptiX, photon_batch_k), sizeof(int32_t), 9);
-      set_launch_param(offsetof(KernelParamsOptiX, photon_offset), sizeof(int32_t), 10);
-      set_launch_param(offsetof(KernelParamsOptiX, photon_max_bounces), sizeof(int32_t), 11);
-      set_launch_param(offsetof(KernelParamsOptiX, photon_debug_mode), sizeof(int32_t), 12);
-      set_launch_param(offsetof(KernelParamsOptiX, photon_out_capacity), sizeof(int32_t), 13);
-      /* Index 14 (work_size) comes from the launch dimension. */
-      set_launch_param(offsetof(KernelParamsOptiX, photon_target_yield), sizeof(device_ptr), 15);
+      set_launch_param(offsetof(KernelParamsOptiX, photon_out_beam_sigma), sizeof(device_ptr), 3);
+      set_launch_param(offsetof(KernelParamsOptiX, photon_out_counter), sizeof(device_ptr), 4);
+      set_launch_param(offsetof(KernelParamsOptiX, photon_lights), sizeof(device_ptr), 5);
+      set_launch_param(offsetof(KernelParamsOptiX, photon_num_lights), sizeof(int32_t), 6);
+      set_launch_param(offsetof(KernelParamsOptiX, photon_targets), sizeof(device_ptr), 7);
+      set_launch_param(offsetof(KernelParamsOptiX, photon_num_targets), sizeof(int32_t), 8);
+      set_launch_param(offsetof(KernelParamsOptiX, photon_materials), sizeof(device_ptr), 9);
+      set_launch_param(offsetof(KernelParamsOptiX, photon_batch_k), sizeof(int32_t), 10);
+      set_launch_param(offsetof(KernelParamsOptiX, photon_offset), sizeof(int32_t), 11);
+      set_launch_param(offsetof(KernelParamsOptiX, photon_max_bounces), sizeof(int32_t), 12);
+      set_launch_param(offsetof(KernelParamsOptiX, photon_debug_mode), sizeof(int32_t), 13);
+      set_launch_param(offsetof(KernelParamsOptiX, photon_out_capacity), sizeof(int32_t), 14);
+      /* Index 15 (work_size) comes from the launch dimension. */
+      set_launch_param(offsetof(KernelParamsOptiX, photon_target_yield), sizeof(device_ptr), 16);
   }
 
+  PhotonProfileScope params_wait("optix.launch_params_wait", this, kernel);
   cuda_device_assert(cuda_device_, cuStreamSynchronize(cuda_stream_));
+  params_wait.finish();
 
   OptixPipeline pipeline = nullptr;
   OptixShaderBindingTable sbt_params = {};
@@ -267,6 +273,7 @@ bool OptiXDeviceQueue::enqueue(DeviceKernel kernel,
 #  endif
 
   /* Launch the ray generation program. */
+  caustics_profile_begin(kernel, work_size);
   optix_device_assert(optix_device,
                       optixLaunch(pipeline,
                                   cuda_stream_,
@@ -276,6 +283,8 @@ bool OptiXDeviceQueue::enqueue(DeviceKernel kernel,
                                   work_size,
                                   1,
                                   1));
+
+  caustics_profile_end();
 
   debug_enqueue_end();
 

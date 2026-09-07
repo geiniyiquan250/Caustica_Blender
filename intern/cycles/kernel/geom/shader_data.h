@@ -16,6 +16,8 @@
 #include "kernel/geom/point_intersect.h"
 #include "kernel/geom/triangle_intersect.h"
 
+#include "kernel/sample/pattern.h"
+
 #include "kernel/util/differential.h"
 
 CCL_NAMESPACE_BEGIN
@@ -62,6 +64,8 @@ ccl_device_inline
   sd->object_flag = kernel_data_fetch(object_flag, sd->object);
   sd->prim = isect->prim;
   sd->flag = 0;
+  sd->runtime_flag = 0;
+  sd->shader_flag = 0;
 
   /* Read matrices and time. */
   sd->time = ray->time;
@@ -110,13 +114,17 @@ ccl_device_inline
     }
   }
 
-  sd->flag = kernel_data_fetch(shaders, (sd->shader & SHADER_MASK)).flags;
+  const int shader_flags = kernel_data_fetch(shaders, (sd->shader & SHADER_MASK)).flags;
+  sd->flag = shader_flags & ~SD_REQUIRES_WAVELENGTH;
+  sd->runtime_flag = sd->flag;
+  sd->shader_flag = shader_flags;
 
   /* backfacing test */
   const bool backfacing = (dot(sd->Ng, sd->wi) < 0.0f);
 
   if (backfacing) {
     sd->flag |= SD_BACKFACING;
+    sd->runtime_flag |= SR_BACKFACING;
     sd->Ng = -sd->Ng;
     sd->N = -sd->N;
 #ifdef __DPDU__
@@ -175,7 +183,10 @@ ccl_device_inline void shader_setup_from_sample(KernelGlobals kg,
   sd->time = time;
   sd->ray_length = t;
 
-  sd->flag = kernel_data_fetch(shaders, (sd->shader & SHADER_MASK)).flags;
+  const int shader_flags = kernel_data_fetch(shaders, (sd->shader & SHADER_MASK)).flags;
+  sd->flag = shader_flags & ~SD_REQUIRES_WAVELENGTH;
+  sd->runtime_flag = sd->flag;
+  sd->shader_flag = shader_flags;
   sd->object_flag = 0;
   if (sd->object != OBJECT_NONE) {
     sd->object_flag |= kernel_data_fetch(object_flag, sd->object);
@@ -233,6 +244,7 @@ ccl_device_inline void shader_setup_from_sample(KernelGlobals kg,
 
     if (backfacing) {
       sd->flag |= SD_BACKFACING;
+      sd->runtime_flag |= SR_BACKFACING;
       sd->Ng = -sd->Ng;
       sd->N = -sd->N;
 #ifdef __DPDU__
@@ -321,7 +333,10 @@ ccl_device void shader_setup_from_curve(KernelGlobals kg,
 
   /* Shader */
   sd->shader = kernel_data_fetch(curves, prim).shader_id;
-  sd->flag = kernel_data_fetch(shaders, (sd->shader & SHADER_MASK)).flags;
+  const int shader_flags = kernel_data_fetch(shaders, (sd->shader & SHADER_MASK)).flags;
+  sd->flag = shader_flags & ~SD_REQUIRES_WAVELENGTH;
+  sd->runtime_flag = sd->flag;
+  sd->shader_flag = shader_flags;
 
   /* Object */
   sd->object = object;
@@ -400,7 +415,10 @@ ccl_device_inline void shader_setup_from_background(KernelGlobals kg,
   sd->Ng = -ray_D;
   sd->wi = -ray_D;
   sd->shader = kernel_data.background.surface_shader;
-  sd->flag = kernel_data_fetch(shaders, (sd->shader & SHADER_MASK)).flags;
+  const int shader_flags = kernel_data_fetch(shaders, (sd->shader & SHADER_MASK)).flags;
+  sd->flag = shader_flags & ~SD_REQUIRES_WAVELENGTH;
+  sd->runtime_flag = sd->flag;
+  sd->shader_flag = shader_flags;
   sd->object_flag = 0;
   sd->time = ray_time;
   sd->ray_length = FLT_MAX;
@@ -442,6 +460,8 @@ ccl_device_inline void shader_setup_from_volume(ccl_private ShaderData *ccl_rest
   sd->wi = -ray->D;
   sd->shader = SHADER_NONE;
   sd->flag = 0;
+  sd->runtime_flag = 0;
+  sd->shader_flag = 0;
   sd->object_flag = 0;
   sd->time = ray->time;
   sd->ray_length = 0.0f; /* todo: can we set this to some useful value? */
@@ -472,5 +492,20 @@ ccl_device_inline void shader_setup_from_volume(ccl_private ShaderData *ccl_rest
   sd->ray_P = ray->P;
 }
 #endif /* __VOLUME__ */
+
+#ifdef __SPECTRAL__
+/* If shader requires, draw a random number for sampling a wavelength. */
+ccl_device_inline void shader_setup_wavelength(KernelGlobals kg,
+                                               ccl_private ShaderData *ccl_restrict sd,
+                                               ConstIntegratorState state)
+{
+  if (sd->shader_flag & SD_REQUIRES_WAVELENGTH) {
+    const uint pixel = INTEGRATOR_STATE(state, path, rng_pixel);
+    const uint sample = INTEGRATOR_STATE(state, path, sample);
+    /* Same random number per path, irrelevant of the bounce. */
+    sd->rand_wavelength = path_rng_1D(kg, pixel, sample, PRNG_BOUNCE_NUM + PRNG_WAVELENGTH);
+  }
+}
+#endif
 
 CCL_NAMESPACE_END

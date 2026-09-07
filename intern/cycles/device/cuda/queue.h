@@ -50,6 +50,24 @@ class CUDADeviceQueue : public DeviceQueue {
   CUDADevice *cuda_device_;
   CUstream cuda_stream_;
 
+  /* Event pairs are reused; profiling never waits for a pending pair to become available. */
+  struct CausticsProfileEvent {
+    CUevent begin = nullptr;
+    CUevent end = nullptr;
+    DeviceKernel kernel = DEVICE_KERNEL_NUM;
+    int work_size = 0;
+    double submitted = 0.0;
+    bool pending = false;
+  };
+  vector<CausticsProfileEvent> caustics_profile_events_;
+  size_t caustics_profile_cursor_ = 0;
+  int caustics_profile_active_ = -1;
+  bool caustics_profile_failed_ = false;
+  void caustics_profile_begin(DeviceKernel kernel, int work_size);
+  void caustics_profile_end();
+  bool caustics_profile_read(CausticsProfileEvent &event);
+  void caustics_profile_collect();
+
   void assert_success(CUresult result, const char *operation);
 };
 

@@ -98,6 +98,7 @@ KERNEL_DATA_ARRAY(uint, photon_shader_caster)
 KERNEL_DATA_ARRAY(float4, photon_volume_beam_start)
 KERNEL_DATA_ARRAY(float4, photon_volume_beam_end)
 KERNEL_DATA_ARRAY(float4, photon_volume_beam_flux)
+KERNEL_DATA_ARRAY(float4, photon_volume_beam_sigma)
 KERNEL_DATA_ARRAY(KernelPhotonBeamNode, photon_volume_beam_nodes)
 
 /* image textures */

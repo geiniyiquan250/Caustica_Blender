@@ -3,6 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0 */
 
 #include "integrator/path_trace_work_cpu.h"
+#include "util/caustics_profiler.h"
 
 #include "device/cpu/kernel.h"
 #include "device/device.h"
@@ -305,6 +306,7 @@ int PathTraceWorkCPU::adaptive_sampling_converge_filter_count_active(const float
 
 void PathTraceWorkCPU::photon_gather(const int num_samples, const int consume)
 {
+  CCL_PHOTON_PROFILE_SCOPE("photon.cpu_gather_and_smooth", this, consume);
   const int full_x = effective_buffer_params_.full_x;
   const int full_y = effective_buffer_params_.full_y;
   const int width = effective_buffer_params_.width;
@@ -316,6 +318,7 @@ void PathTraceWorkCPU::photon_gather(const int num_samples, const int consume)
 
   tbb::task_arena local_arena = local_tbb_arena_create(device_);
 
+  PhotonProfileScope gather("photon.cpu_gather", this, width * height);
   local_arena.execute([&]() {
     parallel_for(full_y, full_y + height, [&](int y) {
       ThreadKernelGlobalsCPU *kernel_globals = kernel_thread_globals_->data();
@@ -328,6 +331,8 @@ void PathTraceWorkCPU::photon_gather(const int num_samples, const int consume)
 
   /* Display smoothing sweep (no-op unless heuristic mask bit 4). Separate
    * sweep: it reads the neighbor statistics the gather just wrote. */
+  gather.finish();
+  CCL_PHOTON_PROFILE_SCOPE("photon.cpu_smooth", this, width * height);
   local_arena.execute([&]() {
     parallel_for(full_y, full_y + height, [&](int y) {
       ThreadKernelGlobalsCPU *kernel_globals = kernel_thread_globals_->data();

@@ -188,7 +188,8 @@ ccl_device_inline bool volume_is_homogeneous(KernelGlobals kg, const IntegratorG
 template<const bool shadow, typename IntegratorGenericState>
 ccl_device float volume_stack_step_size(KernelGlobals kg, const IntegratorGenericState state)
 {
-  kernel_assert(kernel_data.integrator.volume_ray_marching);
+  kernel_assert(kernel_data.integrator.volume_ray_marching ||
+                kernel_data.integrator.use_photon_volume_caustics);
 
   float step_size = FLT_MAX;
 

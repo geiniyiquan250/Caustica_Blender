@@ -176,6 +176,26 @@ ccl_device_inline float photon_fresnel_schlick(const float ci, const float n1, c
   return r0 + (1.0f - r0) * m2 * m2 * m;
 }
 
+/* Same Cauchy parameterization as bsdf_glass_ior(), kept local to the photon
+ * walk because this path does not construct ShaderData for classified glass. */
+ccl_device_inline float photon_glass_ior(const float ior,
+                                         const float inv_abbe,
+                                         const float wavelength)
+{
+  if (inv_abbe == 0.0f) {
+    return ior;
+  }
+  constexpr float lambda_d = 0.5876f;
+  constexpr float lambda_C = 0.6563f;
+  constexpr float lambda_F = 0.4861f;
+  constexpr float fac = 1.0f /
+                        (1.0f / (lambda_F * lambda_F) - 1.0f / (lambda_C * lambda_C));
+  constexpr float inv_lambda_d_sq = 1.0f / (lambda_d * lambda_d);
+  const float B = (ior - 1.0f) * inv_abbe * fac;
+  const float A = ior - B * inv_lambda_d_sq;
+  return A + B / sqr(wavelength);
+}
+
 /* --------------------------------------------------------------- surface */
 
 /* Position, geometric and shading normal, and shader index for a triangle
@@ -261,9 +281,11 @@ ccl_device_inline float photon_deposit_write(const float3 P,
                                               const float3 d,
                                               const float3 power,
                                               const float3 beam_start,
+                                              const float3 beam_sigma,
                                               ccl_global float4 *out_pos,
                                               ccl_global float4 *out_beam_start,
                                               ccl_global float4 *out_flux,
+                                              ccl_global float4 *out_beam_sigma,
                                              ccl_global uint *out_counter,
                                              const int out_capacity,
                                              ccl_global float *target_yield,
@@ -276,6 +298,7 @@ ccl_device_inline float photon_deposit_write(const float3 P,
   if (slot < (uint)out_capacity) {
     out_pos[slot] = make_float4(P.x, P.y, P.z, photon_pack_normal(n_dep));
     out_beam_start[slot] = make_float4(beam_start.x, beam_start.y, beam_start.z, 0.0f);
+    out_beam_sigma[slot] = make_float4(beam_sigma.x, beam_sigma.y, beam_sigma.z, 0.0f);
     /* w carries the emitting light's group (-1 = none), so the gather can
      * split the caustic per light group. Free: the slot was unused. */
     out_flux[slot] = make_float4(power.x, power.y, power.z,
@@ -323,6 +346,7 @@ ccl_device float photon_trace_single(KernelGlobals kg,
                                       ccl_global float4 *out_beam_start,
                                       ccl_global float4 *out_pos,
                                      ccl_global float4 *out_flux,
+                                      ccl_global float4 *out_beam_sigma,
                                      ccl_global uint *out_counter,
                                      const int out_capacity,
                                      ccl_global float *target_yield)
@@ -347,6 +371,19 @@ ccl_device float photon_trace_single(KernelGlobals kg,
 
   PhotonTraceRNG rng;
   photon_rng_seed(&rng, batch_seed + 7919ULL * (uint64_t)li, (uint64_t)local_index);
+
+  /* One wavelength is shared by every interaction of this photon. This is
+   * the same importance-sampled wavelength distribution used by Cycles' own
+   * dispersion path; non-dispersive materials pay only the RNG cost. */
+  float wavelength = 0.5876f;
+  float wavelength_probability = 1.0f;
+#ifdef __SPECTRAL__
+  PhotonTraceRNG wavelength_rng;
+  photon_rng_seed(&wavelength_rng, batch_seed ^ 0xD15C3A5EULL, (uint64_t)photon_index);
+  const float rand_wavelength = photon_rng_uniform(&wavelength_rng);
+  wavelength = sample_wavelength(rand_wavelength, &wavelength_probability);
+#endif
+  bool wavelength_weighted = false;
 
   /* Roulette only the beam records, never the surface walk. Inverse inclusion
    * probability preserves expected flux while bounding the volume workload. */
@@ -376,6 +413,7 @@ ccl_device float photon_trace_single(KernelGlobals kg,
   /* Emit. */
   float3 o, d;
   float flux;
+  float selected_pdf;
   const float3 L_axis = make_float3(L.axis.x, L.axis.y, L.axis.z);
   if (L.type == 0) { /* sun */
     if (L.shape == 1) {
@@ -413,6 +451,7 @@ ccl_device float photon_trace_single(KernelGlobals kg,
     const float sd = (T.start_dist > 0.0f) ? T.start_dist : (Tr * 20.0f + 10.0f);
     o = Tc - d * sd + t1 * (rr * cosf(ang)) + t2 * (rr * sinf(ang));
     flux = M_PI_F * Tr * Tr / ((float)L.n_total * p_pick);
+    selected_pdf = p_pick / (M_PI_F * Tr * Tr);
   }
   else if (L.type == 1 || L.type == 2) { /* point / spot */
     o = make_float3(L.pos.x, L.pos.y, L.pos.z);
@@ -446,6 +485,7 @@ ccl_device float photon_trace_single(KernelGlobals kg,
     }
     const float omega = 2.0f * M_PI_F * (1.0f - cos_max);
     flux = (1.0f / (4.0f * M_PI_F)) * omega / ((float)L.n_total * p_pick);
+    selected_pdf = p_pick / omega;
   }
   else { /* area */
     const float sx = L.axis.w, sy = L.extra.x;
@@ -491,6 +531,25 @@ ccl_device float photon_trace_single(KernelGlobals kg,
     const float omega = 2.0f * M_PI_F * (1.0f - cos_max);
     flux = (1.0f / (M_PI_F * fmaxf(area, 1e-8f))) * area * cl * omega /
            ((float)L.n_total * p_pick);
+    selected_pdf = p_pick / omega;
+  }
+
+  /* Balance the selected proposal against every overlapping target. Without
+   * this, a ray covered by two target domains contributes its energy twice. */
+  if (num_targets > 1) {
+    float mixture_pdf = selected_pdf;
+    float previous = 0.0f;
+    for (int i = 0; i < num_targets; i++) {
+      const PhotonTraceTarget other = targets[i];
+      const float probability = other.wcum - previous;
+      previous = other.wcum;
+      if (i != lo) {
+        mixture_pdf += probability *
+                       photon_target_pdf(make_float3(other.c_r.x, other.c_r.y, other.c_r.z),
+                                         other.c_r.w, o, d, L.type == 0);
+      }
+    }
+    flux *= selected_pdf / mixture_pdf;
   }
 
   float3 power = make_float3(L.color.x, L.color.y, L.color.z) * flux;
@@ -526,6 +585,7 @@ ccl_device float photon_trace_single(KernelGlobals kg,
     const uint slot = atomic_fetch_and_add_uint32(out_counter, 1);
     if (slot < (uint)out_capacity) {
       out_pos[slot] = make_float4(o.x, o.y, o.z, photon_pack_normal(-d));
+      out_beam_sigma[slot] = make_float4(0.0f);
       out_flux[slot] = make_float4(power.x, power.y, power.z, 0.0f);
     }
     return 0.0f;
@@ -547,8 +607,12 @@ ccl_device float photon_trace_single(KernelGlobals kg,
    * clear glass around a tinted liquid, which is the case artists build.
    * A tinted glass AND a tinted liquid would lose the glass's tint after
    * leaving the liquid - a real stack is the fix if that ever shows up. */
-  float3 vol_sigma = make_float3(0.0f, 0.0f, 0.0f);
-  float3 vol_sigma_s = make_float3(0.0f, 0.0f, 0.0f);
+  float3 vol_sigma = make_float3(L.initial_volume_sigma.x,
+                                 L.initial_volume_sigma.y,
+                                 L.initial_volume_sigma.z);
+  float3 vol_sigma_s = make_float3(L.initial_volume_scatter.x,
+                                   L.initial_volume_scatter.y,
+                                   L.initial_volume_scatter.z);
   int vol_object = OBJECT_NONE;
   for (int bounce = 0; bounce < max_bounces; bounce++) {
     /* Ray guard: RT-core traversal of a non-finite or degenerate ray is
@@ -598,6 +662,27 @@ ccl_device float photon_trace_single(KernelGlobals kg,
       return lum_total;
     }
 
+    if (kernel_data.integrator.use_photon_volume_caustics && spec > 0 &&
+        vol_sigma_s.x <= 0.0f && vol_sigma_s.y <= 0.0f && vol_sigma_s.z <= 0.0f)
+    {
+      float3 boundary_P, boundary_Ng, boundary_N;
+      int boundary_shader;
+      if (photon_surface_from_isect(
+              kg, &ray, &isect, &boundary_P, &boundary_Ng, &boundary_N, &boundary_shader))
+      {
+        const PhotonTraceMaterial boundary = materials[boundary_shader];
+        if (boundary.kind == PHOTON_MAT_VOLUME && dot(d, boundary_N) >= 0.0f) {
+          vol_sigma = make_float3(boundary.volume_sigma.x,
+                                  boundary.volume_sigma.y,
+                                  boundary.volume_sigma.z);
+          vol_sigma_s = make_float3(boundary.volume_scatter.x,
+                                    boundary.volume_scatter.y,
+                                    boundary.volume_scatter.z);
+          vol_object = isect.object;
+        }
+      }
+    }
+
     if (kernel_data.integrator.use_photon_volume_caustics &&
         (vol_sigma_s.x > 0.0f || vol_sigma_s.y > 0.0f || vol_sigma_s.z > 0.0f)) {
       /* Store the complete in-medium segment. The old stochastic point
@@ -611,9 +696,11 @@ ccl_device float photon_trace_single(KernelGlobals kg,
                                           d,
                                           power / beam_probability,
                                           ray.P,
+                                          vol_sigma,
                                           out_pos,
                                           out_beam_start,
                                           out_flux,
+                                          out_beam_sigma,
                                           out_counter,
                                           out_capacity,
                                           target_yield,
@@ -665,7 +752,6 @@ ccl_device float photon_trace_single(KernelGlobals kg,
     }
 
     const PhotonTraceMaterial m = materials[shader];
-
     if (debug_mode == 3) {
       /* Surface/material lookup: deposit tinted by the material color. */
       const uint slot = atomic_fetch_and_add_uint32(out_counter, 1);
@@ -706,6 +792,9 @@ ccl_device float photon_trace_single(KernelGlobals kg,
       ShaderDataCausticsStorage sd_storage;
       ccl_private ShaderData *sd = AS_SHADER_DATA(&sd_storage);
       shader_setup_from_ray(kg, sd, &ray, &isect);
+#ifdef __SPECTRAL__
+      sd->rand_wavelength = rand_wavelength;
+#endif
       ConstIntegratorBakeState state;
       surface_shader_eval<KERNEL_FEATURE_NODE_MASK_SURFACE &
                           ~(KERNEL_FEATURE_NODE_RAYTRACE | KERNEL_FEATURE_NODE_LIGHT_PATH |
@@ -759,9 +848,11 @@ ccl_device float photon_trace_single(KernelGlobals kg,
                                             d,
                                             power,
                                             P,
+                                            make_float3(0.0f),
                                             out_pos,
                                             out_beam_start,
                                             out_flux,
+                                            out_beam_sigma,
                                             out_counter,
                                             out_capacity,
                                             target_yield,
@@ -800,6 +891,14 @@ ccl_device float photon_trace_single(KernelGlobals kg,
         if (sampled_eta != 1.0f) {
           thr = thr / (sampled_eta * sampled_eta);
         }
+#ifdef __SPECTRAL__
+        /* Keep the incident deposit unchanged; weight the continuing path once. */
+        if (!wavelength_weighted && (sd->runtime_flag & SR_BSDF_HAS_DISPERSION)) {
+          power *= wavelength_to_rgb_d65(kg, wavelength) /
+                   fmaxf(wavelength_probability, 1e-6f);
+          wavelength_weighted = true;
+        }
+#endif
         power = power * make_float3(fmaxf(thr.x, 0.0f), fmaxf(thr.y, 0.0f), fmaxf(thr.z, 0.0f));
         d = normalize(wo);
         if ((label & LABEL_TRANSMIT) && !(label & LABEL_TRANSPARENT)) {
@@ -912,9 +1011,11 @@ ccl_device float photon_trace_single(KernelGlobals kg,
                                                  d,
                                                 power,
                                                 P,
+                                                make_float3(0.0f),
                                                 out_pos,
                                                 out_beam_start,
                                                 out_flux,
+                                                out_beam_sigma,
                                                 out_counter,
                                                 out_capacity,
                                                 target_yield,
@@ -931,8 +1032,16 @@ ccl_device float photon_trace_single(KernelGlobals kg,
       power = power * make_float3(m.color.x, m.color.y, m.color.z);
     }
     else { /* glass */
-      const float eta1 = entering ? 1.0f : m.ior;
-      const float eta2 = entering ? m.ior : 1.0f;
+      const float glass_ior = photon_glass_ior(m.ior, m.dispersion_inv_abbe, wavelength);
+      const float eta1 = entering ? 1.0f : glass_ior;
+      const float eta2 = entering ? glass_ior : 1.0f;
+      if (!wavelength_weighted && m.dispersion_inv_abbe != 0.0f) {
+#ifdef __SPECTRAL__
+        power = power * (wavelength_to_rgb_d65(kg, wavelength) /
+                         fmaxf(wavelength_probability, 1e-6f));
+#endif
+        wavelength_weighted = true;
+      }
       const float ci = -dot(d, ns);
       const float fr = photon_fresnel_schlick(ci, eta1, eta2);
       float3 refr;

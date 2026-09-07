@@ -1219,7 +1219,8 @@ std::string VolumeManager::visualize_octree(const char *filename) const
 
 void VolumeManager::update_step_size(const Scene *scene, DeviceScene *dscene, Progress &progress)
 {
-  assert(scene->integrator->get_volume_ray_marching());
+  assert(scene->integrator->get_volume_ray_marching() ||
+         scene->integrator->get_use_photon_volume_caustics());
 
   if (!need_update_step_size && !dscene->volume_step_size.is_modified() &&
       !scene->integrator->volume_step_rate_is_modified() && !algorithm_modified_)
@@ -1291,10 +1292,14 @@ void VolumeManager::device_update(Device *device,
     update_visualization_ = false;
   }
 
-  if (algorithm_modified_) {
-    dscene->volume_step_size.free();
-    algorithm_modified_ = false;
+  if (scene->integrator->get_use_photon_volume_caustics()) {
+    /* Beam integration also needs shader evaluation steps with null scattering. */
+    update_step_size(scene, dscene, progress);
   }
+  else if (algorithm_modified_) {
+    dscene->volume_step_size.free();
+  }
+  algorithm_modified_ = false;
 }
 
 void VolumeManager::device_free(DeviceScene *dscene)

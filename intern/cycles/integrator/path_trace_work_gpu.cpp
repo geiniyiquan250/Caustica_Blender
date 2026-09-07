@@ -3,6 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0 */
 
 #include "integrator/path_trace_work_gpu.h"
+#include "util/caustics_profiler.h"
 
 #include "device/device.h"
 
@@ -1209,6 +1210,7 @@ void PathTraceWorkGPU::enqueue_adaptive_sampling_filter_y()
 
 void PathTraceWorkGPU::photon_gather(const int num_samples, const int consume)
 {
+  CCL_PHOTON_PROFILE_SCOPE("photon.gpu_gather_and_smooth", this, consume);
   const int work_size = effective_buffer_params_.width * effective_buffer_params_.height;
   if (!work_size) {
     return;
@@ -1224,6 +1226,9 @@ void PathTraceWorkGPU::photon_gather(const int num_samples, const int consume)
                                    &num_samples,
                                    &consume);
 
+  photon_profile_value("photon.gather_pixels", queue_.get(), work_size);
+  photon_profile_value("photon.gather_samples", queue_.get(), num_samples);
+  photon_profile_value("photon.gather_consume", queue_.get(), consume);
   queue_->enqueue(DEVICE_KERNEL_FILM_PHOTON_GATHER, work_size, args);
 
   /* Display smoothing sweep (no-op unless heuristic mask bit 4). Separate
@@ -1237,6 +1242,7 @@ void PathTraceWorkGPU::photon_gather(const int num_samples, const int consume)
                                     &effective_buffer_params_.stride,
                                     &num_samples);
   queue_->enqueue(DEVICE_KERNEL_FILM_PHOTON_SMOOTH, work_size, sargs);
+  CCL_PHOTON_PROFILE_SCOPE("photon.gather_wait", queue_.get());
   queue_->synchronize();
 }
 

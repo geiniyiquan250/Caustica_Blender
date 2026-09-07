@@ -9,6 +9,7 @@
 
 #include "integrator/pass_accessor.h"
 #include "integrator/photon_map.h"
+#include "util/caustics_profiler.h"
 #include "kernel/integrator/photon_grid.h"
 #include "integrator/path_trace_display.h"
 #include "integrator/path_trace_tile.h"
@@ -185,6 +186,8 @@ void PathTrace::render(const RenderWork &render_work)
 
 void PathTrace::render_pipeline(RenderWork render_work)
 {
+  CCL_PHOTON_PROFILE_SCOPE("render.work", this, render_work.path_trace.num_samples);
+  photon_profile_value("render.navigation", this, photon_navigating_);
   /* NOTE: Only check for "instant" cancel here. The user-requested cancel via progress is
    * checked in Session and the work in the event of cancel is to be finished here. */
 
@@ -454,6 +457,7 @@ void PathTrace::init_render_buffers(const RenderWork &render_work)
 
 void PathTrace::path_trace(RenderWork &render_work)
 {
+  CCL_PHOTON_PROFILE_SCOPE("render.path_trace", this, render_work.path_trace.num_samples);
   if (!render_work.path_trace.num_samples) {
     return;
   }
@@ -519,6 +523,7 @@ void PathTrace::path_trace(RenderWork &render_work)
 
 void PathTrace::adaptive_sample(RenderWork &render_work)
 {
+  CCL_PHOTON_PROFILE_SCOPE("render.adaptive_sampling", this);
   if (!render_work.adaptive_sampling.filter) {
     return;
   }
@@ -681,6 +686,7 @@ void PathTrace::denoise(const RenderWork &render_work)
   }
 
   LOG_DEBUG << "Perform denoising work.";
+  CCL_PHOTON_PROFILE_SCOPE("render.denoise", this);
 
   const double start_time = time_dt();
 
@@ -774,6 +780,7 @@ void PathTrace::zero_display()
 
 void PathTrace::draw()
 {
+  CCL_PHOTON_PROFILE_SCOPE("render.display_draw", this);
   if (!display_) {
     return;
   }
@@ -806,6 +813,9 @@ void PathTrace::update_display(const RenderWork &render_work)
     return;
   }
 
+  CCL_PHOTON_PROFILE_SCOPE("render.display_update", this);
+  photon_profile_value("render.width", this, render_state_.effective_big_tile_params.width);
+  photon_profile_value("render.height", this, render_state_.effective_big_tile_params.height);
   const double start_time = time_dt();
 
   if (output_driver_) {
@@ -850,6 +860,7 @@ void PathTrace::update_display(const RenderWork &render_work)
     }
 
     display_->update_end();
+    photon_profile_value("render.display_ready_samples", this, get_num_samples_in_buffer());
   }
 
   render_scheduler_.report_display_update_time(render_work, time_dt() - start_time);
@@ -963,6 +974,7 @@ void PathTrace::finalize_full_buffer_on_disk(const RenderWork &render_work)
 
 void PathTrace::cancel()
 {
+  CCL_PHOTON_PROFILE_SCOPE("render.cancel_wait", this);
   thread_scoped_lock lock(render_cancel_.mutex);
 
   render_cancel_.is_requested = true;
@@ -1568,6 +1580,15 @@ void PathTrace::set_photon_grid(const struct PhotonGrid *grid)
   if (generation == photon_grid_generation_) {
     return;
   }
+  CCL_PHOTON_PROFILE_SCOPE("photon.grid_upload", this, generation);
+  if (grid) {
+    photon_profile_value("photon.grid_deposits", this, grid->num_photons);
+    photon_profile_value("photon.grid_cells", this, grid->table_size);
+    photon_profile_value("photon.radius", this, grid->radius);
+    photon_profile_value("photon.device_resident", this, grid->device_resident);
+    photon_profile_value("volume.beam_segments", this, grid->num_volume_beams);
+    photon_profile_value("volume.bvh_nodes", this, grid->num_volume_beam_nodes);
+  }
   photon_grid_generation_ = generation;
 
   /* SPPM heuristic ablation mask (see data_template.h): default all on,
@@ -1603,11 +1624,13 @@ void PathTrace::set_photon_grid(const struct PhotonGrid *grid)
     dscene->photon_pos.free();
     dscene->photon_beam_start.free();
     dscene->photon_flux.free();
+    dscene->photon_beam_sigma.free();
     dscene->photon_cell_start.free();
     dscene->photon_shader_caster.free();
     dscene->photon_volume_beam_start.free();
     dscene->photon_volume_beam_end.free();
     dscene->photon_volume_beam_flux.free();
+    dscene->photon_volume_beam_sigma.free();
     dscene->photon_volume_beam_nodes.free();
     kintegrator->photon_num = 0;
     kintegrator->photon_table_size = 0;
@@ -1639,6 +1662,8 @@ void PathTrace::set_photon_grid(const struct PhotonGrid *grid)
       dscene->photon_beam_start.copy_to_device();
       memset(dscene->photon_flux.alloc(cap), 0, sizeof(float4) * cap);
       dscene->photon_flux.copy_to_device();
+      memset(dscene->photon_beam_sigma.alloc(cap), 0, sizeof(float4) * cap);
+      dscene->photon_beam_sigma.copy_to_device();
     }
     /* High-water capacity: a different alloc size device-frees + reallocs
      * (and cuMemFree synchronizes the context) every time the table grows
@@ -1654,6 +1679,7 @@ void PathTrace::set_photon_grid(const struct PhotonGrid *grid)
                            map->scatter_published(dscene->photon_pos.device_pointer,
                                                   dscene->photon_beam_start.device_pointer,
                                                   dscene->photon_flux.device_pointer,
+                                                  dscene->photon_beam_sigma.device_pointer,
                                                   dscene->photon_cell_start.device_pointer);
     if (scattered) {
       kintegrator->photon_num = num;
@@ -1716,6 +1742,15 @@ void PathTrace::set_photon_grid(const struct PhotonGrid *grid)
     dscene->photon_beam_start.copy_to_device();
     memcpy(dscene->photon_flux.alloc(num), grid->flux, sizeof(float4) * num);
     dscene->photon_flux.copy_to_device();
+    if (grid->beam_sigma != nullptr) {
+      memcpy(dscene->photon_beam_sigma.alloc(num), grid->beam_sigma, sizeof(float4) * num);
+    }
+    else {
+      memset(dscene->photon_beam_sigma.alloc(num), 0, sizeof(float4) * num);
+    }
+    dscene->photon_beam_sigma.copy_to_device();
+    /* Volume beam medium data is uploaded separately below; surface deposits
+     * keep a zero sigma entry for array alignment. */
     /* High-water capacity, same reasoning as the device-resident branch. */
     const size_t cell_cap = std::max((size_t)(table + 1), dscene->photon_cell_start.size());
     int *cell_dst = dscene->photon_cell_start.alloc(cell_cap);
@@ -1733,6 +1768,7 @@ void PathTrace::set_photon_grid(const struct PhotonGrid *grid)
   if (generation != 0 && !grid->device_resident && grid->num_volume_beams > 0 &&
       grid->num_volume_beam_nodes > 0 && grid->volume_beam_start != nullptr &&
       grid->volume_beam_end != nullptr && grid->volume_beam_flux != nullptr &&
+      grid->volume_beam_sigma != nullptr &&
       grid->volume_beam_nodes != nullptr)
   {
     const size_t beam_num = (size_t)grid->num_volume_beams;
@@ -1755,6 +1791,10 @@ void PathTrace::set_photon_grid(const struct PhotonGrid *grid)
            grid->volume_beam_flux,
            sizeof(float4) * beam_num);
     dscene->photon_volume_beam_flux.copy_to_device();
+    memcpy(dscene->photon_volume_beam_sigma.alloc(beam_capacity),
+           grid->volume_beam_sigma,
+           sizeof(float4) * beam_num);
+    dscene->photon_volume_beam_sigma.copy_to_device();
     memcpy(dscene->photon_volume_beam_nodes.alloc(node_capacity),
            grid->volume_beam_nodes,
            sizeof(KernelPhotonBeamNode) * node_num);
@@ -1766,6 +1806,7 @@ void PathTrace::set_photon_grid(const struct PhotonGrid *grid)
     dscene->photon_volume_beam_start.free();
     dscene->photon_volume_beam_end.free();
     dscene->photon_volume_beam_flux.free();
+    dscene->photon_volume_beam_sigma.free();
     dscene->photon_volume_beam_nodes.free();
     kintegrator->photon_volume_beam_num = 0;
     kintegrator->photon_volume_beam_node_num = 0;
@@ -1791,12 +1832,35 @@ void PathTrace::photon_gather_after_work()
     return;
   }
 
+  /* The gather is a full-frame kernel with an explicit GPU wait. Keep it off
+   * the navigation path entirely: the camera-independent map remains valid,
+   * and a pending generation is consumed on the first work after navigation. */
+  if (photon_navigating_) {
+    photon_profile_value("photon.gather_skipped_navigation", this, 1);
+    return;
+  }
+
+  /* Volume beam lookup shares the full-frame gather kernel with surface
+   * photons. When no new generation arrived, an every-other-work update
+   * preserves the latest volume estimate while avoiding duplicate expensive
+   * beam traversals. Pending generations always consume immediately. */
+  if (device_scene_->data.integrator.use_photon_volume_caustics &&
+      !photon_gather_pending_ && (++photon_volume_gather_skip_ & 1u))
+  {
+    photon_profile_value("photon.gather_skipped_volume_repeat", this, 1);
+    return;
+  }
+  photon_volume_gather_skip_ = 0;
+  photon_gather_skip_ = 0;
+
   /* Consume a pending photon generation into the per-pixel SPPM statistics,
    * or only refresh the delta-written display estimate: the sample count
    * grew during the work, so the stored combined contribution must be
    * rescaled either way. Path kernels are idle between works, so the film
    * kernel never races path state. */
   const int consume = photon_gather_pending_ ? 1 : 0;
+  CCL_PHOTON_PROFILE_SCOPE("photon.gather_total", this, consume);
+  photon_profile_value("photon.gather_generation", this, photon_grid_generation_);
   photon_gather_pending_ = false;
   if (consume) {
     LOG_INFO << "CyclesPlus photon map: consuming generation into SPPM statistics";

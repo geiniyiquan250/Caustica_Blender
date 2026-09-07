@@ -9,6 +9,7 @@
 
 #pragma once
 
+#include "kernel/closure/volume.h"
 #include "kernel/integrator/photon_grid.h"
 
 CCL_NAMESPACE_BEGIN
@@ -128,7 +129,9 @@ ccl_device float3 photon_grid_beam_integral(KernelGlobals kg,
                                             const float3 sigma_t,
                                             const float3 sigma_s,
                                             const float volume_g,
-                                            const float r2)
+                                            const float r2,
+                                            const ccl_private ShaderData *sd = nullptr,
+                                            const bool skip_root_bounds = false)
 {
   if (kernel_data.integrator.photon_volume_beam_num == 0 ||
       kernel_data.integrator.photon_volume_beam_node_num == 0 || tmax <= tmin || r2 <= 0.0f)
@@ -157,7 +160,10 @@ ccl_device float3 photon_grid_beam_integral(KernelGlobals kg,
     const float3 t1 = (bmax - ro) * inv_d;
     const float tn = max(max(min(t0.x, t1.x), min(t0.y, t1.y)), min(t0.z, t1.z));
     const float tf = min(min(max(t0.x, t1.x), max(t0.y, t1.y)), max(t0.z, t1.z));
-    if (tf < max(tn, 0.0f) || tn > (tmax - tmin)) {
+    /* Refracted camera paths may enter the tree through a numerically stale
+     * root interval. Child AABBs and the exact beam test remain authoritative. */
+    if ((!skip_root_bounds || node_index != 0) &&
+        (tf < max(tn, 0.0f) || tn > (tmax - tmin))) {
       continue;
     }
 
@@ -168,6 +174,10 @@ ccl_device float3 photon_grid_beam_integral(KernelGlobals kg,
         const float4 a4 = kernel_data_fetch(photon_volume_beam_start, beam);
         const float4 b4 = kernel_data_fetch(photon_volume_beam_end, beam);
         const float4 f4 = kernel_data_fetch(photon_volume_beam_flux, beam);
+        const float4 sigma4 = kernel_data_fetch(photon_volume_beam_sigma, beam);
+        const float3 beam_sigma_t = max(make_float3(sigma4.x, sigma4.y, sigma4.z),
+                                        make_float3(0.0f));
+        const float3 camera_sigma_t = max(sigma_t, make_float3(0.0f));
         const float3 a = make_float3(a4.x, a4.y, a4.z);
         const float3 b = make_float3(b4.x, b4.y, b4.z);
         const float3 v = b - a;
@@ -211,12 +221,15 @@ ccl_device float3 photon_grid_beam_integral(KernelGlobals kg,
           continue;
         }
 
-        /* Both paths lie in the same homogeneous medium. Evaluate from the
-         * nearer endpoint to avoid overflow and use the zero-extinction limit. */
+        /* Integrate from the endpoint with lower optical depth. Opposing rays
+         * can have a negative combined rate; clamping it breaks subdivision. */
         const float span = far_t - near_t;
         const float beam_t = clamp(along + cosine * near_t, 0.0f, beam_length);
-        const float3 rate = sigma_t * (1.0f + cosine);
-        const float3 attenuation = exp(-sigma_t * (near_t + beam_t + a4.w));
+        const float beam_far_t = clamp(along + cosine * far_t, 0.0f, beam_length);
+        const float3 rate = fabs(camera_sigma_t + beam_sigma_t * cosine);
+        const float3 depth_near = camera_sigma_t * near_t + beam_sigma_t * (beam_t + a4.w);
+        const float3 depth_far = camera_sigma_t * far_t + beam_sigma_t * (beam_far_t + a4.w);
+        const float3 attenuation = exp(-min(depth_near, depth_far));
         const float3 integral = make_float3(
             fabsf(rate.x * span) < 1e-4f ? span * (1.0f - 0.5f * rate.x * span) :
                                          -expm1f(-rate.x * span) / rate.x,
@@ -228,7 +241,21 @@ ccl_device float3 photon_grid_beam_integral(KernelGlobals kg,
         const float denom_phase = 1.0f + gg * gg - 2.0f * gg * cos_theta;
         const float phase = (1.0f - gg * gg) /
                             (4.0f * M_PI_F * denom_phase * sqrtf(max(denom_phase, 1e-12f)));
-        result += (phase / (M_PI_F * radius2)) * attenuation * integral * sigma_s *
+        float3 scattering = phase * sigma_s;
+        if (sd != nullptr) {
+          /* Actual mixed closures include texture weights and colored scattering. */
+          Spectrum phase_sum = zero_spectrum();
+          for (int ci = 0; ci < sd->num_closure; ci++) {
+            const ccl_private ShaderClosure *sc = &sd->closure[ci];
+            if (CLOSURE_IS_VOLUME_SCATTER(sc->type)) {
+              float pdf;
+              phase_sum += sc->weight * volume_phase_eval(
+                  sd, (const ccl_private ShaderVolumeClosure *)sc, -beam_dir, &pdf);
+            }
+          }
+          scattering = spectrum_to_rgb(phase_sum);
+        }
+        result += (scattering / (M_PI_F * radius2)) * attenuation * integral *
                   make_float3(f4.x, f4.y, f4.z);
       }
     }

@@ -606,7 +606,11 @@ void Scene::update_kernel_features()
   }
 
   dscene.data.integrator.use_caustics = false;
-  if (device->info.has_mnee() && has_caustics_caster && has_caustics_receiver &&
+  /* Photon Caustics exclusive mode: its estimator owns refractive and
+   * reflective caustics, so do not compile or run the native MNEE path in
+   * parallel. Native caustics remain available when Photon Caustics is off. */
+  if (!integrator->get_use_photon_caustics() && device->info.has_mnee() &&
+      has_caustics_caster && has_caustics_receiver &&
       has_caustics_light)
   {
     dscene.data.integrator.use_caustics = true;

@@ -43,6 +43,7 @@ extern "C" __global__ void __raygen__kernel_optix_photon_trace()
       kernel_params.photon_out_beam_start,
       kernel_params.photon_out_pos,
       kernel_params.photon_out_flux,
+      kernel_params.photon_out_beam_sigma,
       kernel_params.photon_out_counter,
       kernel_params.photon_out_capacity,
       kernel_params.photon_target_yield);

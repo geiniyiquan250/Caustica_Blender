@@ -11,6 +11,7 @@ set(INC_SYS
 
 set(SRC
   aligned_malloc.cpp
+  caustics_profiler.cpp
   colorspace.cpp
   debug.cpp
   guarded_allocator.cpp
@@ -58,6 +59,7 @@ set(SRC_HEADERS
   atomic.h
   boundbox.h
   cache_limiter.h
+  caustics_profiler.h
   color.h
   colorspace.h
   concurrent_set.h

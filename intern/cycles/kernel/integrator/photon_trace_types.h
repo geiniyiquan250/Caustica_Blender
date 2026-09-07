@@ -30,6 +30,10 @@ struct PhotonTraceMaterial {
   float rough;
   float transmission; /* receivers: thin-wall pass-through probability */
 
+  /* Inverse Abbe number used by the official Principled dispersion model.
+   * Zero keeps the legacy non-dispersive photon path. */
+  float dispersion_inv_abbe;
+
   float coat;
   float coat_rough;
   float coat_ior;
@@ -77,6 +81,8 @@ struct PhotonTraceLight {
    *     light that emitted it, so the gather can split the caustic the way
    *     Cycles splits Combined into Combined_<group> passes. */
   float4 extra;
+  float4 initial_volume_sigma; /* xyz: medium at the emission point */
+  float4 initial_volume_scatter; /* xyz: scattering medium at emission */
 };
 
 /* Caster target (bounding sphere), cumulative weight for picking. */
@@ -91,6 +97,33 @@ struct PhotonTraceTarget {
   float start_dist;
   float pad1, pad2;
 };
+
+/* Density of an emitted ray under one target's disc (sun/world) or cone proposal.
+ * Shared by the host and device tracers for overlapping-target MIS. */
+ccl_device_inline float photon_target_pdf(const float3 center,
+                                         const float radius,
+                                         const float3 origin,
+                                         const float3 direction,
+                                         const bool directional)
+{
+  const float3 delta = center - origin;
+  if (directional) {
+    const float3 radial = delta - direction * dot(delta, direction);
+    return dot(radial, radial) <= radius * radius ?
+               1.0f / (M_PI_F * radius * radius) :
+               0.0f;
+  }
+  const float distance = len(delta);
+  if (distance < 1e-6f) {
+    return 0.0f;
+  }
+  const float sin_max = fminf(1.0f, radius / fmaxf(distance, radius));
+  const float cos_max = sqrtf(fmaxf(0.0f, 1.0f - sin_max * sin_max));
+  if (cos_max >= 1.0f || dot(delta / distance, direction) < cos_max) {
+    return 0.0f;
+  }
+  return 1.0f / (2.0f * M_PI_F * (1.0f - cos_max));
+}
 
 /* Batch seed, shared so host and kernel derive identical RNG streams. */
 ccl_device_inline uint64_t photon_trace_batch_seed(const uint64_t k)

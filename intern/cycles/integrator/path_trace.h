@@ -114,6 +114,16 @@ class PathTrace {
     return photon_gather_pending_;
   }
 
+  /* Interactive navigation may keep the last gather for a few work updates;
+   * newly published photon generations still bypass the cadence. */
+  void set_photon_navigating(const bool navigating)
+  {
+    photon_navigating_ = navigating;
+    if (!navigating) {
+      photon_gather_skip_ = 0;
+    }
+  }
+
   /* Sets output driver for render buffer output. */
   void set_output_driver(unique_ptr<OutputDriver> driver);
 
@@ -313,6 +323,9 @@ class PathTrace {
    * after the next render work). */
   uint64_t photon_grid_generation_ = 0;
   bool photon_gather_pending_ = false;
+  bool photon_navigating_ = false;
+  uint photon_gather_skip_ = 0;
+  uint photon_volume_gather_skip_ = 0;
 
 #if defined(WITH_PATH_GUIDING)
   /* Guiding related attributes */

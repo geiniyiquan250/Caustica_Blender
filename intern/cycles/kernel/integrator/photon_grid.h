@@ -26,6 +26,7 @@ CCL_NAMESPACE_BEGIN
 struct PhotonGrid {
   const float4 *pos = nullptr;  /* xyz = position, w = packed deposit normal */
   const float4 *beam_start = nullptr; /* xyz = volume beam segment start */
+  const float4 *beam_sigma = nullptr;
   const float4 *flux = nullptr; /* xyz = flux in W, w = emitting light's group */
   const int *cell_start = nullptr;
   int num_photons = 0;
@@ -35,6 +36,7 @@ struct PhotonGrid {
   const float4 *volume_beam_start = nullptr;
   const float4 *volume_beam_end = nullptr;
   const float4 *volume_beam_flux = nullptr;
+  const float4 *volume_beam_sigma = nullptr;
   const KernelPhotonBeamNode *volume_beam_nodes = nullptr;
   int num_volume_beams = 0;
   int num_volume_beam_nodes = 0;
@@ -48,6 +50,7 @@ struct PhotonGrid {
   uint64_t dep_pos_device = 0;
   uint64_t dep_beam_start_device = 0;
   uint64_t dep_flux_device = 0;
+  uint64_t dep_beam_sigma_device = 0;
   void *owner = nullptr; /* PhotonMap*, host-side only */
   /* Per kernel shader slot: does the photon map cast from this shader?
    * Uploaded as the kernel data array photon_shader_caster. */

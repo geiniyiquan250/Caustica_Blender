@@ -1648,6 +1648,7 @@ elseif(WIN32)
       install(
         FILES
           ${CMAKE_SOURCE_DIR}/release/windows/batch/blender_debug_cycles.cmd
+          ${CMAKE_SOURCE_DIR}/release/windows/batch/blender_caustics_profile.cmd
         DESTINATION ${TARGETDIR_EXE}
       )
     endif()

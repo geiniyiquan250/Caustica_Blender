@@ -115,6 +115,7 @@ class PhotonMap {
   bool scatter_published(device_ptr out_pos,
                          device_ptr out_beam_start,
                          device_ptr out_flux,
+                         device_ptr out_beam_sigma,
                          device_ptr cell_start_device);
 
  private:

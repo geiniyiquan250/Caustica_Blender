@@ -569,6 +569,7 @@ class PrincipledBsdfNode : public BsdfBaseNode {
   bool subsurface_has_positive_weight();
   bool has_surface_bssrdf() override;
   bool has_bssrdf_bump() override;
+  bool has_dispersion() override;
   void simplify_settings(Scene *scene) override;
 
   NODE_SOCKET_API(float3, base_color)
@@ -592,6 +593,8 @@ class PrincipledBsdfNode : public BsdfBaseNode {
   NODE_SOCKET_API(float, anisotropic_rotation)
   NODE_SOCKET_API(float3, tangent)
   NODE_SOCKET_API(float, transmission_weight)
+  NODE_SOCKET_API(float, transmission_dispersion_scale)
+  NODE_SOCKET_API(float, transmission_dispersion_abbe_number)
   NODE_SOCKET_API(float, sheen_weight)
   NODE_SOCKET_API(float, sheen_roughness)
   NODE_SOCKET_API(float3, sheen_tint)

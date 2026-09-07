@@ -39,6 +39,7 @@ struct KernelParamsOptiX {
   float4 *photon_out_pos;
   float4 *photon_out_beam_start;
   float4 *photon_out_flux;
+  float4 *photon_out_beam_sigma;
   uint *photon_out_counter;
   const void *photon_lights;
   const void *photon_targets;

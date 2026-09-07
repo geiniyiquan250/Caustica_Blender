@@ -665,7 +665,7 @@ class CyclesRenderSettings(bpy.types.PropertyGroup):
         name="Photon Count",
         description="Millions of photons per progressive pass. Caustics refine with every "
         "pass while rendering; higher counts refine faster",
-        min=1, max=100,
+        min=1, max=1000,
         default=100,
     )
 
@@ -673,7 +673,7 @@ class CyclesRenderSettings(bpy.types.PropertyGroup):
         name="Detail",
         description="Sharpness of the caustic pattern. Higher values shrink the gather "
         "radius; raise the photon count along with it to avoid grain",
-        min=0.1, max=10.0,
+        min=0.1, max=100.0,
         default=10.0,
     )
 

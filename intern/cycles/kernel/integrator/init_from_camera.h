@@ -67,6 +67,7 @@ ccl_device bool integrator_init_from_camera(KernelGlobals kg,
 
   int x, y, sample;
   bool photon_writer = false;
+  bool photon_camera_path = true;
 
   if (tile == nullptr) {
     /* Restart from miss. Reconstruct x, y, sample from state. */
@@ -75,7 +76,9 @@ ccl_device bool integrator_init_from_camera(KernelGlobals kg,
     y = pixel_index / (int)kernel_data.cam.width;
     sample = INTEGRATOR_STATE(state, path, sample);
     /* Writer role survives the restart through the flag stashed below. */
-    photon_writer = (INTEGRATOR_STATE(state, path, flag) & PATH_RAY_PHOTON_HITPOINT_WRITER) != 0;
+    const uint32_t restart_flags = INTEGRATOR_STATE(state, path, flag);
+    photon_writer = (restart_flags & PATH_RAY_PHOTON_HITPOINT_WRITER) != 0;
+    photon_camera_path = (restart_flags & PATH_RAY_PHOTON_CAMERA_PATH) != 0;
   }
   else {
     x = x_;
@@ -138,9 +141,9 @@ ccl_device bool integrator_init_from_camera(KernelGlobals kg,
       INTEGRATOR_STATE_WRITE(state, path, sample) = sample;
       /* Stash the writer role for the restart (the restart branch above
        * reads it back before the flags are re-initialized). */
-      INTEGRATOR_STATE_WRITE(state, path, flag) = photon_writer ?
-                                                      PATH_RAY_PHOTON_HITPOINT_WRITER :
-                                                      0;
+      INTEGRATOR_STATE_WRITE(state, path, flag) =
+          (photon_writer ? PATH_RAY_PHOTON_HITPOINT_WRITER : 0) |
+          (photon_camera_path ? PATH_RAY_PHOTON_CAMERA_PATH : 0);
     }
     integrator_path_cache_miss(state, DEVICE_KERNEL_INTEGRATOR_INIT_FROM_CAMERA);
     return true;
@@ -185,6 +188,9 @@ ccl_device bool integrator_init_from_camera(KernelGlobals kg,
    * earlier in this function (no caustics at all: the write never fired). */
   if (photon_writer) {
     INTEGRATOR_STATE_WRITE(state, path, flag) |= PATH_RAY_PHOTON_HITPOINT_WRITER;
+  }
+  if (photon_camera_path) {
+    INTEGRATOR_STATE_WRITE(state, path, flag) |= PATH_RAY_PHOTON_CAMERA_PATH;
   }
 
   return true;
