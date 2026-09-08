@@ -174,6 +174,7 @@ ccl_device float3 photon_grid_beam_integral(KernelGlobals kg,
 
   const float radius2 = r2;
   const float gg = clamp(volume_g, -0.999f, 0.999f);
+  const float3 camera_sigma_t = max(sigma_t, make_float3(0.0f));
   float3 result = make_float3(0.0f, 0.0f, 0.0f);
   int stack[64];
   int stack_size = 0;
@@ -268,7 +269,6 @@ ccl_device float3 photon_grid_beam_integral(KernelGlobals kg,
         const float4 sigma4 = kernel_data_fetch(photon_volume_beam_sigma, beam);
         const float3 beam_sigma_t = max(make_float3(sigma4.x, sigma4.y, sigma4.z),
                                         make_float3(0.0f));
-        const float3 camera_sigma_t = max(sigma_t, make_float3(0.0f));
 
         /* Integrate from the endpoint with lower optical depth. Opposing rays
          * can have a negative combined rate; clamping it breaks subdivision. */
