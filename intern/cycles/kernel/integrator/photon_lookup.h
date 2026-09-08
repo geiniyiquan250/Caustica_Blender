@@ -11,8 +11,39 @@
 
 #include "kernel/closure/volume.h"
 #include "kernel/integrator/photon_grid.h"
+#include "kernel/integrator/photon_profile_types.h"
+#include "kernel/integrator/state.h"
+#include "util/hash.h"
 
 CCL_NAMESPACE_BEGIN
+
+ccl_device_inline ccl_global uint64_t *photon_volume_profile_select(
+    const IntegratorState state)
+{
+#ifdef __KERNEL_CUDA__
+  if (kernel_integrator_state.photon_volume_profile != nullptr) {
+    const uint hash = hash_uint2(INTEGRATOR_STATE(state, path, render_pixel_index),
+                                 INTEGRATOR_STATE(state, path, sample));
+    if ((hash & PHOTON_PROFILE_SAMPLE_MASK) == 0) {
+      const uint shard = (hash >> 10) & (PHOTON_PROFILE_SHARDS - 1);
+      return kernel_integrator_state.photon_volume_profile +
+             shard * PHOTON_PROFILE_NUM_COUNTERS;
+    }
+  }
+#endif
+  return nullptr;
+}
+
+ccl_device_inline void photon_volume_profile_add(ccl_global uint64_t *profile,
+                                                 const int counter,
+                                                 const uint64_t count = 1)
+{
+#ifdef __KERNEL_CUDA__
+  if (profile != nullptr && count != 0) {
+    atomicAdd((unsigned long long *)(profile + counter), (unsigned long long)count);
+  }
+#endif
+}
 
 /* Epanechnikov-weighted flux sum from photons within the gather radius,
  * plus the raw photon count for the SPPM statistics update. `r2` is the
@@ -122,16 +153,18 @@ ccl_device float3 photon_grid_gather(KernelGlobals kg,
  * Integrate both transmittances over the finite cylinder intersection and
  * normalize by its cross section. No 1/sin(theta) singularity is needed. */
 ccl_device float3 photon_grid_beam_integral(KernelGlobals kg,
-                                            const float3 ray_P,
-                                            const float3 ray_D,
-                                            const float tmin,
+                                             const float3 ray_P,
+                                             const float3 ray_D,
+                                             const float3 inv_d,
+                                             const float tmin,
                                             const float tmax,
                                             const float3 sigma_t,
                                             const float3 sigma_s,
                                             const float volume_g,
                                             const float r2,
                                             const ccl_private ShaderData *sd = nullptr,
-                                            const bool skip_root_bounds = false)
+                                            const bool skip_root_bounds = false,
+                                            ccl_global uint64_t *profile = nullptr)
 {
   if (kernel_data.integrator.photon_volume_beam_num == 0 ||
       kernel_data.integrator.photon_volume_beam_node_num == 0 || tmax <= tmin || r2 <= 0.0f)
@@ -146,12 +179,11 @@ ccl_device float3 photon_grid_beam_integral(KernelGlobals kg,
   int stack_size = 0;
   stack[stack_size++] = 0;
   const float3 ro = ray_P + ray_D * tmin;
-  const float3 inv_d = make_float3(
-      1.0f / (fabsf(ray_D.x) > 1e-20f ? ray_D.x : copysignf(1e-20f, ray_D.x)),
-      1.0f / (fabsf(ray_D.y) > 1e-20f ? ray_D.y : copysignf(1e-20f, ray_D.y)),
-      1.0f / (fabsf(ray_D.z) > 1e-20f ? ray_D.z : copysignf(1e-20f, ray_D.z)));
-
+  uint nodes = 0, rejects = 0, leaves = 0, candidates = 0, hits = 0, phases = 0;
   while (stack_size > 0) {
+    if (profile) {
+      nodes++;
+    }
     const int node_index = stack[--stack_size];
     const KernelPhotonBeamNode node = kernel_data_fetch(photon_volume_beam_nodes, node_index);
     const float3 bmin = node.bmin;
@@ -164,28 +196,31 @@ ccl_device float3 photon_grid_beam_integral(KernelGlobals kg,
      * root interval. Child AABBs and the exact beam test remain authoritative. */
     if ((!skip_root_bounds || node_index != 0) &&
         (tf < max(tn, 0.0f) || tn > (tmax - tmin))) {
+      if (profile) {
+        rejects++;
+      }
       continue;
     }
 
     if (node.left < 0) {
+      if (profile) {
+        leaves++;
+        candidates += node.right;
+      }
       const int first = -node.left - 1;
       for (int i = 0; i < node.right; i++) {
         const int beam = first + i;
         const float4 a4 = kernel_data_fetch(photon_volume_beam_start, beam);
         const float4 b4 = kernel_data_fetch(photon_volume_beam_end, beam);
-        const float4 f4 = kernel_data_fetch(photon_volume_beam_flux, beam);
-        const float4 sigma4 = kernel_data_fetch(photon_volume_beam_sigma, beam);
-        const float3 beam_sigma_t = max(make_float3(sigma4.x, sigma4.y, sigma4.z),
-                                        make_float3(0.0f));
-        const float3 camera_sigma_t = max(sigma_t, make_float3(0.0f));
         const float3 a = make_float3(a4.x, a4.y, a4.z);
         const float3 b = make_float3(b4.x, b4.y, b4.z);
         const float3 v = b - a;
         const float c = dot(v, v);
         if (c <= 1e-20f) {
+          photon_volume_profile_add(profile, PHOTON_PROFILE_DEGENERATE_BEAMS);
           continue;
         }
-        const float beam_length = sqrtf(c);
+        const float beam_length = b4.w;
         const float3 beam_dir = v / beam_length;
         const float3 w = ro - a;
         const float along = dot(w, beam_dir);
@@ -199,6 +234,7 @@ ccl_device float3 photon_grid_beam_integral(KernelGlobals kg,
           const float3 closest = radial_o + center_t * radial_d;
           const float radial2 = dot(closest, closest);
           if (radial2 >= radius2) {
+            photon_volume_profile_add(profile, PHOTON_PROFILE_RADIAL_REJECTS);
             continue;
           }
           const float half_span = sqrtf((radius2 - radial2) / qa);
@@ -206,6 +242,7 @@ ccl_device float3 photon_grid_beam_integral(KernelGlobals kg,
           far_t = min(far_t, center_t + half_span);
         }
         else if (dot(radial_o, radial_o) >= radius2) {
+          photon_volume_profile_add(profile, PHOTON_PROFILE_RADIAL_REJECTS);
           continue;
         }
         if (fabsf(cosine) > 1e-7f) {
@@ -215,11 +252,23 @@ ccl_device float3 photon_grid_beam_integral(KernelGlobals kg,
           far_t = min(far_t, max(cap0, cap1));
         }
         else if (along < 0.0f || along > beam_length) {
+          photon_volume_profile_add(profile, PHOTON_PROFILE_CAP_REJECTS);
           continue;
         }
         if (far_t <= near_t) {
+          photon_volume_profile_add(profile, PHOTON_PROFILE_INTERVAL_REJECTS);
           continue;
         }
+        if (profile) {
+          hits++;
+        }
+
+        /* Flux and beam extinction are only needed after the geometric test. */
+        const float4 f4 = kernel_data_fetch(photon_volume_beam_flux, beam);
+        const float4 sigma4 = kernel_data_fetch(photon_volume_beam_sigma, beam);
+        const float3 beam_sigma_t = max(make_float3(sigma4.x, sigma4.y, sigma4.z),
+                                        make_float3(0.0f));
+        const float3 camera_sigma_t = max(sigma_t, make_float3(0.0f));
 
         /* Integrate from the endpoint with lower optical depth. Opposing rays
          * can have a negative combined rate; clamping it breaks subdivision. */
@@ -237,23 +286,29 @@ ccl_device float3 photon_grid_beam_integral(KernelGlobals kg,
                                          -expm1f(-rate.y * span) / rate.y,
             fabsf(rate.z * span) < 1e-4f ? span * (1.0f - 0.5f * rate.z * span) :
                                          -expm1f(-rate.z * span) / rate.z);
-        const float cos_theta = -cosine;
-        const float denom_phase = 1.0f + gg * gg - 2.0f * gg * cos_theta;
-        const float phase = (1.0f - gg * gg) /
-                            (4.0f * M_PI_F * denom_phase * sqrtf(max(denom_phase, 1e-12f)));
-        float3 scattering = phase * sigma_s;
+        float3 scattering;
         if (sd != nullptr) {
           /* Actual mixed closures include texture weights and colored scattering. */
           Spectrum phase_sum = zero_spectrum();
           for (int ci = 0; ci < sd->num_closure; ci++) {
             const ccl_private ShaderClosure *sc = &sd->closure[ci];
             if (CLOSURE_IS_VOLUME_SCATTER(sc->type)) {
+              if (profile) {
+                phases++;
+              }
               float pdf;
               phase_sum += sc->weight * volume_phase_eval(
                   sd, (const ccl_private ShaderVolumeClosure *)sc, -beam_dir, &pdf);
             }
           }
           scattering = spectrum_to_rgb(phase_sum);
+        }
+        else {
+          const float cos_theta = -cosine;
+          const float denom_phase = 1.0f + gg * gg - 2.0f * gg * cos_theta;
+          const float phase = (1.0f - gg * gg) /
+                              (4.0f * M_PI_F * denom_phase * sqrtf(max(denom_phase, 1e-12f)));
+          scattering = phase * sigma_s;
         }
         result += (scattering / (M_PI_F * radius2)) * attenuation * integral *
                   make_float3(f4.x, f4.y, f4.z);
@@ -264,8 +319,20 @@ ccl_device float3 photon_grid_beam_integral(KernelGlobals kg,
         stack[stack_size++] = node.left;
         stack[stack_size++] = node.right;
       }
+      else {
+        photon_volume_profile_add(profile, PHOTON_PROFILE_STACK_OVERFLOWS);
+      }
     }
   }
+  photon_volume_profile_add(profile, PHOTON_PROFILE_QUERIES);
+  photon_volume_profile_add(profile, PHOTON_PROFILE_EMPTY_QUERIES, hits == 0);
+  photon_volume_profile_add(profile, PHOTON_PROFILE_NODES, nodes);
+  photon_volume_profile_add(profile, PHOTON_PROFILE_NODE_REJECTS, rejects);
+  photon_volume_profile_add(profile, PHOTON_PROFILE_LEAVES, leaves);
+  photon_volume_profile_add(profile, PHOTON_PROFILE_CANDIDATES, candidates);
+  photon_volume_profile_add(profile, PHOTON_PROFILE_HITS, hits);
+  photon_volume_profile_add(profile, PHOTON_PROFILE_HG_EVALS, sd == nullptr ? hits : 0);
+  photon_volume_profile_add(profile, PHOTON_PROFILE_CLOSURE_EVALS, phases);
   return result;
 }
 

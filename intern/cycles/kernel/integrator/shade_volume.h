@@ -1746,17 +1746,23 @@ ccl_device_forceinline void volume_integrate_homogeneous(KernelGlobals kg,
       kernel_data.integrator.photon_num > 0 && ray_length > 0.0f &&
       !is_zero(coeff.sigma_s))
   {
-    float volume_g = 0.0f;
-    for (int i = 0; i < sd->num_closure; i++) {
-      if (CLOSURE_IS_VOLUME_SCATTER(sd->closure[i].type)) {
-        volume_g = volume_phase_get_g(
-            (const ccl_private ShaderVolumeClosure *)&sd->closure[i]);
-        break;
-      }
-    }
+    /* Only HG has the analytic fast path; other phase functions retain their model. */
+    ccl_global uint64_t *profile = photon_volume_profile_select(state);
+    photon_volume_profile_add(profile, PHOTON_PROFILE_HOMOGENEOUS_SEGMENTS);
+    const bool single_hg = sd->num_closure == 1 &&
+                           sd->closure[0].type == CLOSURE_VOLUME_HENYEY_GREENSTEIN_ID;
+    const float volume_g = single_hg ?
+                               volume_phase_get_g(
+                                   (const ccl_private ShaderVolumeClosure *)&sd->closure[0]) :
+                               0.0f;
+    const float3 inv_d = make_float3(
+        1.0f / (fabsf(ray->D.x) > 1e-20f ? ray->D.x : copysignf(1e-20f, ray->D.x)),
+        1.0f / (fabsf(ray->D.y) > 1e-20f ? ray->D.y : copysignf(1e-20f, ray->D.y)),
+        1.0f / (fabsf(ray->D.z) > 1e-20f ? ray->D.z : copysignf(1e-20f, ray->D.z)));
     const float3 beam_radiance = photon_grid_beam_integral(kg,
                                                            ray->P,
                                                            ray->D,
+                                                           inv_d,
                                                            ray->tmin,
                                                            ray->tmax,
                                                            coeff.sigma_t,
@@ -1764,9 +1770,10 @@ ccl_device_forceinline void volume_integrate_homogeneous(KernelGlobals kg,
                                                            volume_g,
                                                            kernel_data.integrator.photon_radius *
                                                                kernel_data.integrator.photon_radius,
-                                                           sd->num_closure > 1 ? sd : nullptr,
+                                                           single_hg ? nullptr : sd,
                                                            (INTEGRATOR_STATE(state, path, flag) &
-                                                            PATH_RAY_PHOTON_CAMERA_PATH) != 0);
+                                                            PATH_RAY_PHOTON_CAMERA_PATH) != 0,
+                                                           profile);
     vstate.emission += throughput * beam_radiance * kernel_data.integrator.photon_intensity;
   }
 
@@ -2130,54 +2137,88 @@ ccl_device Spectrum volume_integrate_photon_beams(
     return zero_spectrum();
   }
 
+  ccl_global uint64_t *profile = photon_volume_profile_select(state);
+  photon_volume_profile_add(profile, PHOTON_PROFILE_MARCH_SEGMENTS);
   const bool photon_camera_path =
       (INTEGRATOR_STATE(state, path, flag) & PATH_RAY_PHOTON_CAMERA_PATH) != 0;
   const KernelPhotonBeamNode root = kernel_data_fetch(photon_volume_beam_nodes, 0);
   Interval<float> beam_range = {ray->tmin, ray->tmax};
   if (!photon_camera_path &&
       !ray_aabb_intersect(root.bmin, root.bmax, ray->P, ray->D, &beam_range)) {
+    photon_volume_profile_add(profile, PHOTON_PROFILE_ROOT_REJECTS);
     return zero_spectrum();
   }
 
   Ray beam_ray = *ray;
   beam_ray.tmax = beam_range.max;
   const float step_size = volume_stack_step_size<false>(kg, state);
+  /* Beam radiance is already spatially smoothed by the photon radius. Use a
+   * coarser dedicated march while keeping the camera volume path unchanged. */
+  const float beam_step_size = step_size == FLT_MAX ?
+                                   step_size :
+                                   min(step_size * 2.0f, beam_ray.tmax - ray->tmin);
+  const float3 inv_d = make_float3(
+      1.0f / (fabsf(ray->D.x) > 1e-20f ? ray->D.x : copysignf(1e-20f, ray->D.x)),
+      1.0f / (fabsf(ray->D.y) > 1e-20f ? ray->D.y : copysignf(1e-20f, ray->D.y)),
+      1.0f / (fabsf(ray->D.z) > 1e-20f ? ray->D.z : copysignf(1e-20f, ray->D.z)));
   VolumeStep vstep;
-  volume_step_init<false>(kg, rng_state, step_size, ray->tmin, beam_ray.tmax, &vstep);
+  volume_step_init<false>(kg, rng_state, beam_step_size, ray->tmin, beam_ray.tmax, &vstep);
   Spectrum transmittance = one_spectrum();
   Spectrum radiance = zero_spectrum();
   const int object = sd->object;
   const uint lcg_state = sd->lcg_state;
 
   for (int step = 0; volume_ray_marching_advance(step, &beam_ray, &sd->P, vstep); step++) {
+    photon_volume_profile_add(profile, PHOTON_PROFILE_SHADER_SAMPLES);
     /* The random first-step offset must not drop the final interval at the step limit. */
     if (step + 1 == vstep.max_steps) {
+      photon_volume_profile_add(profile, PHOTON_PROFILE_STEP_LIMITS);
       vstep.t.max = beam_ray.tmax;
       sd->P = ray->P + ray->D * mix(vstep.t.min, vstep.t.max, vstep.shade_offset);
     }
     VolumeShaderCoefficients coeff ccl_optional_struct_init;
     if (!volume_shader_sample(kg, state, sd, &coeff)) {
+      photon_volume_profile_add(profile, PHOTON_PROFILE_SHADER_EMPTY);
       continue;
     }
     if (sd->flag & SD_CACHE_MISS) {
+      photon_volume_profile_add(profile, PHOTON_PROFILE_CACHE_MISSES);
       break;
     }
     if (!is_zero(coeff.sigma_s) && vstep.t.max > beam_range.min) {
+      /* A single HG closure can use the same analytic path as homogeneous
+       * volumes. Keep the native closure loop for other phase functions and
+       * mixed media. */
+      const bool single_hg = sd->num_closure == 1 &&
+                             sd->closure[0].type == CLOSURE_VOLUME_HENYEY_GREENSTEIN_ID;
+      const float volume_g = single_hg ?
+                                 volume_phase_get_g(
+                                     (const ccl_private ShaderVolumeClosure *)&sd->closure[0]) :
+                                 0.0f;
       radiance += transmittance * photon_grid_beam_integral(
           kg,
           ray->P,
           ray->D,
+          inv_d,
           vstep.t.min,
           vstep.t.max,
           coeff.sigma_t,
           coeff.sigma_s,
-          0.0f,
+          volume_g,
           kernel_data.integrator.photon_radius * kernel_data.integrator.photon_radius,
-          sd,
-          photon_camera_path);
+          single_hg ? nullptr : sd,
+          photon_camera_path,
+          profile);
+    }
+    else {
+      photon_volume_profile_add(profile, PHOTON_PROFILE_NO_SCATTER_STEPS,
+                               is_zero(coeff.sigma_s));
+      photon_volume_profile_add(profile, PHOTON_PROFILE_PRE_BEAM_STEPS,
+                               vstep.t.max <= beam_range.min);
     }
     transmittance *= volume_color_transmittance(coeff.sigma_t, vstep.t.length());
     if (reduce_max(transmittance) < VOLUME_THROUGHPUT_EPSILON) {
+      photon_volume_profile_add(profile, PHOTON_PROFILE_ATTENUATION_EXITS);
       break;
     }
   }

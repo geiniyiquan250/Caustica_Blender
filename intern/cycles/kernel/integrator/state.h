@@ -196,6 +196,9 @@ struct IntegratorStateGPU {
   /* Count number of queued kernels. */
   ccl_global IntegratorQueueCounter *queue_counter;
 
+  /* Optional sampled volume diagnostics, owned by this GPU work queue. */
+  ccl_global uint64_t *photon_volume_profile;
+
   /* Count number of kernels queued for specific shaders. */
   ccl_global int *sort_key_counter[DEVICE_GPU_KERNEL_INTEGRATOR_NUM];
 

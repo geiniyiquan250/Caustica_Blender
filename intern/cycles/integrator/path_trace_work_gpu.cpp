@@ -17,6 +17,7 @@
 #include "util/string.h"
 
 #include "kernel/device/gpu/block_sizes.h"
+#include "kernel/integrator/photon_profile_types.h"
 #include "kernel/types.h"
 
 CCL_NAMESPACE_BEGIN
@@ -84,6 +85,7 @@ PathTraceWorkGPU::PathTraceWorkGPU(Device *device,
       queue_(device->gpu_queue_create()),
       integrator_state_soa_kernel_features_(0),
       integrator_queue_counter_(device, "integrator_queue_counter", MEM_READ_WRITE),
+      photon_volume_profile_(device, "photon_volume_profile", MEM_READ_WRITE),
       integrator_shader_sort_counter_(device, "integrator_shader_sort_counter", MEM_READ_WRITE),
       integrator_shader_raytrace_sort_counter_(
           device, "integrator_shader_raytrace_sort_counter", MEM_READ_WRITE),
@@ -311,6 +313,17 @@ void PathTraceWorkGPU::alloc_work_memory()
   alloc_integrator_queue();
   alloc_integrator_sorting();
   alloc_integrator_path_split();
+
+  const char *detail = std::getenv("CYCLESPLUS_CAUSTICS_PROFILE_DETAIL");
+  if (photon_profile_enabled() && (!detail || detail[0] != '0') &&
+      (device_->info.type == DEVICE_CUDA || device_->info.type == DEVICE_OPTIX) &&
+      photon_volume_profile_.size() == 0)
+  {
+    photon_volume_profile_.alloc(PHOTON_PROFILE_SHARDS * PHOTON_PROFILE_NUM_COUNTERS);
+    photon_volume_profile_.zero_to_device();
+    integrator_state_gpu_.photon_volume_profile =
+        (uint64_t *)photon_volume_profile_.device_pointer;
+  }
 }
 
 void PathTraceWorkGPU::init_execution()
@@ -366,6 +379,10 @@ void PathTraceWorkGPU::render_samples(RenderStatistics &statistics,
 
   enqueue_reset();
 
+  if (photon_volume_profile_.size()) {
+    queue_->zero_to_device(photon_volume_profile_);
+  }
+
   int num_iterations = 0;
   uint64_t num_busy_accum = 0;
 
@@ -409,6 +426,42 @@ void PathTraceWorkGPU::render_samples(RenderStatistics &statistics,
   }
   else {
     statistics.occupancy = 0.0f;
+  }
+
+  if (photon_volume_profile_.size()) {
+    CCL_PHOTON_PROFILE_SCOPE("volume.profile_readback", queue_.get());
+    queue_->copy_from_device(photon_volume_profile_);
+    if (queue_->synchronize()) {
+      static const char *names[] = {
+          "volume.detail.homogeneous_segments", "volume.detail.march_segments",
+          "volume.detail.root_rejects", "volume.detail.shader_samples",
+          "volume.detail.shader_empty", "volume.detail.cache_misses",
+          "volume.detail.no_scatter_steps", "volume.detail.pre_beam_steps",
+          "volume.detail.attenuation_exits", "volume.detail.step_limits",
+          "volume.detail.queries", "volume.detail.empty_queries",
+          "volume.detail.nodes", "volume.detail.node_rejects",
+          "volume.detail.leaves", "volume.detail.candidates",
+          "volume.detail.degenerate_beams", "volume.detail.radial_rejects",
+          "volume.detail.cap_rejects", "volume.detail.interval_rejects",
+          "volume.detail.hits",
+          "volume.detail.hg_evals", "volume.detail.closure_evals",
+          "volume.detail.stack_overflows"};
+      static_assert(sizeof(names) / sizeof(names[0]) == PHOTON_PROFILE_NUM_COUNTERS);
+      photon_profile_value("volume.detail.sample_stride", queue_.get(),
+                           PHOTON_PROFILE_SAMPLE_MASK + 1);
+      photon_profile_value("volume.detail.start_sample", queue_.get(), start_sample);
+      photon_profile_value("volume.detail.requested_samples", queue_.get(), samples_num);
+      photon_profile_value("volume.detail.width", queue_.get(), effective_buffer_params_.width);
+      photon_profile_value("volume.detail.height", queue_.get(), effective_buffer_params_.height);
+      photon_profile_value("volume.detail.cancelled", queue_.get(), is_cancel_requested());
+      for (int counter = 0; counter < PHOTON_PROFILE_NUM_COUNTERS; counter++) {
+        uint64_t total = 0;
+        for (int shard = 0; shard < PHOTON_PROFILE_SHARDS; shard++) {
+          total += photon_volume_profile_.data()[shard * PHOTON_PROFILE_NUM_COUNTERS + counter];
+        }
+        photon_profile_value(names[counter], queue_.get(), double(total));
+      }
+    }
   }
 }
 

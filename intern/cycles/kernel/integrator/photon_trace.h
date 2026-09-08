@@ -613,7 +613,7 @@ ccl_device float photon_trace_single(KernelGlobals kg,
   float3 vol_sigma_s = make_float3(L.initial_volume_scatter.x,
                                    L.initial_volume_scatter.y,
                                    L.initial_volume_scatter.z);
-  int vol_object = OBJECT_NONE;
+  int vol_object = __float_as_int(L.initial_volume_sigma.w);
   for (int bounce = 0; bounce < max_bounces; bounce++) {
     /* Ray guard: RT-core traversal of a non-finite or degenerate ray is
      * undefined behavior - observed as a hard device hang on OptiX after

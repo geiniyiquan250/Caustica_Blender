@@ -81,7 +81,7 @@ struct PhotonTraceLight {
    *     light that emitted it, so the gather can split the caustic the way
    *     Cycles splits Combined into Combined_<group> passes. */
   float4 extra;
-  float4 initial_volume_sigma; /* xyz: medium at the emission point */
+  float4 initial_volume_sigma; /* xyz: medium at emission; w: bit-packed object index */
   float4 initial_volume_scatter; /* xyz: scattering medium at emission */
 };
 

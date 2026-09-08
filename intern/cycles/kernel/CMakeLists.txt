@@ -195,6 +195,7 @@ set(SRC_KERNEL_INTEGRATOR_HEADERS
   integrator/path_state.h
   integrator/photon_grid.h
   integrator/photon_lookup.h
+  integrator/photon_profile_types.h
   integrator/photon_trace.h
   integrator/photon_trace_types.h
   integrator/shade_background.h

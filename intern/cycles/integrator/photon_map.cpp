@@ -230,11 +230,14 @@ struct PhotonLight {
   int ies_slot = -1;
   float3 initial_volume_sigma = make_float3(0.0f);
   float3 initial_volume_scatter = make_float3(0.0f);
+  int initial_volume_object = OBJECT_NONE;
+  int initial_volume_material = -1;
 };
 
 struct PhotonVolumeRegion {
   float3 bmin, bmax;
   float3 sigma, scatter;
+  int object, material;
 };
 
 /* Light group index for a photon source, or -1 for none. Reads the very map
@@ -568,7 +571,8 @@ void trace_photon(const PhotonTraceScene &s,
                   const int lightgroup = -1,
                   const float beam_probability = 1.0f,
                   const float3 initial_volume_sigma = make_float3(0.0f),
-                  const float3 initial_volume_scatter = make_float3(0.0f))
+                  const float3 initial_volume_scatter = make_float3(0.0f),
+                  const int initial_volume_material = -1)
 {
   PhotonRNG beam_rng;
   beam_rng.seed(rng.state ^ 0xBEA641ULL, rng.inc);
@@ -587,7 +591,7 @@ void trace_photon(const PhotonTraceScene &s,
    * its tint when the photon crosses that wall. */
   float3 vol_sigma = initial_volume_sigma;
   float3 vol_sigma_s = initial_volume_scatter;
-  int vol_mat = -1;
+  int vol_mat = initial_volume_material;
   for (int b = 0; b < max_bounces; b++) {
     /* Ray guard, mirroring the kernel walk: degenerate rays (rare RNG
      * corners in scatter normalizations) die instead of polluting
@@ -906,7 +910,8 @@ void emit_photons(const PhotonTraceScene &s,
                    L.lightgroup,
                    beam_probability,
                    L.initial_volume_sigma,
-                   L.initial_volume_scatter);
+                   L.initial_volume_scatter,
+                   L.initial_volume_material);
     }
     else if (L.type == 1 || L.type == 2) { /* point / spot */
       const float inv4pi = 1.0f / (4.0f * M_PI_F);
@@ -948,7 +953,8 @@ void emit_photons(const PhotonTraceScene &s,
                    L.lightgroup,
                    beam_probability,
                    L.initial_volume_sigma,
-                   L.initial_volume_scatter);
+                   L.initial_volume_scatter,
+                   L.initial_volume_material);
     }
     else { /* area */
       const float area = L.sx * L.sy * (L.shape ? M_PI_F / 4.0f : 1.0f);
@@ -1003,7 +1009,8 @@ void emit_photons(const PhotonTraceScene &s,
                    L.lightgroup,
                    beam_probability,
                    L.initial_volume_sigma,
-                   L.initial_volume_scatter);
+                   L.initial_volume_scatter,
+                   L.initial_volume_material);
     }
   }
 }
@@ -2485,7 +2492,9 @@ bool extract_scene(Scene *scene,
         volume_regions.push_back({object->bounds.min,
                                   object->bounds.max,
                                   m.volume_sigma,
-                                  m.volume_sigma_s});
+                                  m.volume_sigma_s,
+                                  object->index,
+                                  shader_to_mat.back()});
         volume_region_recorded = true;
       }
       /* Accurate materials become aim targets ONLY on hidden-specular
@@ -2775,6 +2784,8 @@ bool extract_scene(Scene *scene,
             p.z >= region.bmin.z - eps && p.z <= region.bmax.z + eps) {
           light.initial_volume_sigma = region.sigma;
           light.initial_volume_scatter = region.scatter;
+          light.initial_volume_object = region.object;
+          light.initial_volume_material = region.material;
           break;
         }
       }
@@ -3295,7 +3306,7 @@ void fill_kernel_light(const PhotonLight &L,
   kl.initial_volume_sigma = make_float4(L.initial_volume_sigma.x,
                                         L.initial_volume_sigma.y,
                                         L.initial_volume_sigma.z,
-                                        0.0f);
+                                        __int_as_float(L.initial_volume_object));
   kl.initial_volume_scatter = make_float4(L.initial_volume_scatter.x,
                                           L.initial_volume_scatter.y,
                                           L.initial_volume_scatter.z,
@@ -3509,7 +3520,7 @@ void build_volume_beam_bvh(const float4 *dep_pos,
         const float3 start = a + (b - a) * t0;
         const float3 end = a + (b - a) * t1;
         out.volume_beam_start.push_back(make_float4(start.x, start.y, start.z, t0 * beam_length));
-        out.volume_beam_end.push_back(make_float4(end.x, end.y, end.z, 0.0f));
+        out.volume_beam_end.push_back(make_float4(end.x, end.y, end.z, beam_length / pieces));
         out.volume_beam_flux.push_back(dep_flux[i]);
         out.volume_beam_sigma.push_back(dep_sigma[i]);
       }
@@ -3519,19 +3530,31 @@ void build_volume_beam_bvh(const float4 *dep_pos,
     return;
   }
 
+  /* Cache beam bounds once. Recursive BVH construction revisits each beam at
+   * every ancestor node; recomputing these values there made construction
+   * unnecessarily O(n log n) in geometry loads and min/max operations. */
+  vector<float3> beam_bounds_min(out.volume_beam_start.size());
+  vector<float3> beam_bounds_max(out.volume_beam_start.size());
+  vector<float3> beam_centers(out.volume_beam_start.size());
+  const float beam_radius = photon_safe_radius(radius);
+  for (size_t i = 0; i < out.volume_beam_start.size(); i++) {
+    const float3 a = make_float3(out.volume_beam_start[i].x,
+                                 out.volume_beam_start[i].y,
+                                 out.volume_beam_start[i].z);
+    const float3 b = make_float3(
+        out.volume_beam_end[i].x, out.volume_beam_end[i].y, out.volume_beam_end[i].z);
+    beam_bounds_min[i] = min(a, b) - make_float3(beam_radius);
+    beam_bounds_max[i] = max(a, b) + make_float3(beam_radius);
+    beam_centers[i] = (beam_bounds_min[i] + beam_bounds_max[i]) * 0.5f;
+  }
+
   vector<int> order(out.volume_beam_start.size());
   for (size_t i = 0; i < order.size(); i++) {
     order[i] = (int)i;
   }
-  const float beam_radius = photon_safe_radius(radius);
   auto bounds_for = [&](const int index, float3 &bmin, float3 &bmax) {
-    const float3 a = make_float3(out.volume_beam_start[index].x,
-                                 out.volume_beam_start[index].y,
-                                 out.volume_beam_start[index].z);
-    const float3 b = make_float3(
-        out.volume_beam_end[index].x, out.volume_beam_end[index].y, out.volume_beam_end[index].z);
-    bmin = min(a, b) - make_float3(beam_radius);
-    bmax = max(a, b) + make_float3(beam_radius);
+    bmin = beam_bounds_min[index];
+    bmax = beam_bounds_max[index];
   };
   std::function<int(size_t, size_t)> build = [&](const size_t begin, const size_t end) {
     const int node_index = (int)out.volume_beam_nodes.size();
@@ -3543,13 +3566,14 @@ void build_volume_beam_bvh(const float4 *dep_pos,
       bounds_for(order[i], beam_min, beam_max);
       bmin = min(bmin, beam_min);
       bmax = max(bmax, beam_max);
-      const float3 center = (beam_min + beam_max) * 0.5f;
+      const float3 center = beam_centers[order[i]];
       cmin = min(cmin, center);
       cmax = max(cmax, center);
     }
     out.volume_beam_nodes[node_index].bmin = bmin;
     out.volume_beam_nodes[node_index].bmax = bmax;
     const size_t count = end - begin;
+    /* Balance traversal depth against leaf scans without changing beam geometry or flux. */
     if (count <= 8) {
       out.volume_beam_nodes[node_index].left = -((int)begin + 1);
       out.volume_beam_nodes[node_index].right = (int)count;
@@ -5251,10 +5275,7 @@ void PhotonMap::restart(Scene *scene,
     if (dist > 0.0f && dist < FLT_MAX) {
       const float px_world = 2.0f * dist * tanf(0.5f * cam->get_fov()) /
                              (float)cam->get_full_width();
-       /* Curved casters need a broader kernel than a flat receiver: otherwise
-        * the projected triangle pattern remains visible even after smoothing.
-        * Use a quarter-power response for a conservative surface estimate. */
-       r0 = 16.0f * px_world / powf(std::max(detail, 0.1f), 0.25f);
+      r0 = 16.0f * px_world / std::max(detail, 0.1f);
     }
   }
   if (!(r0 > 0.0f) || !isfinite_safe(r0)) {
