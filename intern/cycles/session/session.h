@@ -267,13 +267,8 @@ class Session {
    * caustic estimate resolve (bounded by PHOTON_EXTRA_SAMPLES_MAX, reset on
    * scene changes). Included in the render scheduler's sample target. */
   int photon_extra_samples_ = 0;
-  /* Time of the last film-only reset (camera navigation). New photon
-   * generations pause while this is fresh: the session loop iterates many
-   * times between navigation ticks, so a per-iteration check alone re-allows
-   * tracing a few ms into the drag - the pause has to outlast the tick. */
-  double photon_nav_reset_time_ = -1.0e10;
   /* Blender's navigating flag (set_navigating, called from view_draw while
-   * MMB-orbit/pan/transform runs), read by the session thread. */
+   * MMB-orbit/pan/transform runs), retained for profiling. */
   std::atomic<bool> photon_navigating_ = false;
 
   /* True while this interactive session's photon machinery is parked

@@ -1654,8 +1654,17 @@ void PathTrace::set_photon_grid(const struct PhotonGrid *grid)
      * and re-upload (zeros) only when the capacity grows: steady state
      * reuses the same device allocation with zero PCIe traffic, the
      * scatter overwrites in place and cell_start bounds every read. */
+    const size_t photon_cap = (size_t)num + (size_t)num / 4;
+    /* Do not retain a several-times-larger allocation after a large scene
+     * edit. The free is between render works, so no kernel can reference it. */
+    if (dscene->photon_pos.size() > photon_cap * 2) {
+      dscene->photon_pos.free();
+      dscene->photon_beam_start.free();
+      dscene->photon_flux.free();
+      dscene->photon_beam_sigma.free();
+    }
     if (dscene->photon_pos.size() < (size_t)num) {
-      const size_t cap = (size_t)num + (size_t)num / 4;
+      const size_t cap = photon_cap;
       memset(dscene->photon_pos.alloc(cap), 0, sizeof(float4) * cap);
       dscene->photon_pos.copy_to_device();
       memset(dscene->photon_beam_start.alloc(cap), 0, sizeof(float4) * cap);
@@ -1669,7 +1678,11 @@ void PathTrace::set_photon_grid(const struct PhotonGrid *grid)
      * (and cuMemFree synchronizes the context) every time the table grows
      * during the viewport ramp. The kernel bounds all reads by
      * photon_table_size, so a stale tail is harmless. */
-    const size_t cell_cap = std::max((size_t)(table + 1), dscene->photon_cell_start.size());
+    const size_t requested_cell_cap = (size_t)table + 1;
+    if (dscene->photon_cell_start.size() > requested_cell_cap * 2) {
+      dscene->photon_cell_start.free();
+    }
+    const size_t cell_cap = std::max(requested_cell_cap, dscene->photon_cell_start.size());
     int *cell_dst = dscene->photon_cell_start.alloc(cell_cap);
     memcpy(cell_dst, grid->cell_start, sizeof(int) * (table + 1));
     dscene->photon_cell_start.copy_to_device();
@@ -1775,9 +1788,20 @@ void PathTrace::set_photon_grid(const struct PhotonGrid *grid)
     const size_t node_num = (size_t)grid->num_volume_beam_nodes;
     /* Keep high-water allocations, like the surface map, to avoid a device
      * synchronization on every small change in the number of beams. */
-    const size_t beam_capacity = std::max(beam_num + beam_num / 4,
+    const size_t requested_beam_capacity = beam_num + beam_num / 4;
+    const size_t requested_node_capacity = node_num + node_num / 4;
+    if (dscene->photon_volume_beam_start.size() > requested_beam_capacity * 2) {
+      dscene->photon_volume_beam_start.free();
+      dscene->photon_volume_beam_end.free();
+      dscene->photon_volume_beam_flux.free();
+      dscene->photon_volume_beam_sigma.free();
+    }
+    if (dscene->photon_volume_beam_nodes.size() > requested_node_capacity * 2) {
+      dscene->photon_volume_beam_nodes.free();
+    }
+    const size_t beam_capacity = std::max(requested_beam_capacity,
                                           dscene->photon_volume_beam_start.size());
-    const size_t node_capacity = std::max(node_num + node_num / 4,
+    const size_t node_capacity = std::max(requested_node_capacity,
                                           dscene->photon_volume_beam_nodes.size());
     memcpy(dscene->photon_volume_beam_start.alloc(beam_capacity),
            grid->volume_beam_start,
@@ -1829,14 +1853,6 @@ void PathTrace::photon_gather_after_work()
    * (the kernel skips grid-less pixels to keep the generation statistics
    * unbiased), so skip the dispatch entirely. */
   if (device_scene_->data.integrator.photon_num == 0) {
-    return;
-  }
-
-  /* The gather is a full-frame kernel with an explicit GPU wait. Keep it off
-   * the navigation path entirely: the camera-independent map remains valid,
-   * and a pending generation is consumed on the first work after navigation. */
-  if (photon_navigating_) {
-    photon_profile_value("photon.gather_skipped_navigation", this, 1);
     return;
   }
 

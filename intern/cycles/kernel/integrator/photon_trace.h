@@ -507,15 +507,19 @@ ccl_device float photon_trace_single(KernelGlobals kg,
     const float3 xax = normalize(cross(up, zax));
     const float3 yax = cross(zax, xax);
     o = make_float3(L.pos.x, L.pos.y, L.pos.z) + xax * lx + yax * ly;
-    /* Uniform-cone direction sampling (see the point/spot comment). */
-    float3 ca = Tc - o;
-    const float dist = len(ca);
-    if (dist < 1e-6f) {
-      return 0.0f;
+    /* A zero-spread area light is a collimated emitter. Do not aim its
+     * photons at every caster target: that creates caustics outside the
+     * actual rectangular beam. */
+    if (L.tan_half_spread == 0.0f) {
+      d = zax;
+      flux = (L.normalize ? 1.0f : area) /
+             ((float)L.n_total * p_pick);
+      selected_pdf = p_pick;
     }
-    ca = ca * (1.0f / dist);
-    const float st = fminf(1.0f, Tr / fmaxf(dist, Tr));
-    const float cos_max = sqrtf(fmaxf(0.0f, 1.0f - st * st));
+    else {
+    /* Sample the actual emission cone around the light normal. */
+    const float3 ca = zax;
+    const float cos_max = 1.0f / sqrtf(1.0f + sqr(L.tan_half_spread));
     const float ct = 1.0f - photon_rng_uniform(&rng) * (1.0f - cos_max);
     const float sn = sqrtf(fmaxf(0.0f, 1.0f - ct * ct));
     const float ph = 2.0f * M_PI_F * photon_rng_uniform(&rng);
@@ -529,9 +533,14 @@ ccl_device float photon_trace_single(KernelGlobals kg,
       return 0.0f; /* behind the emitting side: zero radiance there */
     }
     const float omega = 2.0f * M_PI_F * (1.0f - cos_max);
-    flux = (1.0f / (M_PI_F * fmaxf(area, 1e-8f))) * area * cl * omega /
+    const float tan_a = sqrtf(fmaxf(0.0f, 1.0f - cl * cl)) / fmaxf(cl, 1e-8f);
+    const float spread_attenuation = (L.tan_half_spread == FLT_MAX) ? 1.0f :
+        fmaxf((L.tan_half_spread - tan_a) * L.normalize_spread, 0.0f);
+    flux = (1.0f / (M_PI_F * fmaxf(area, 1e-8f))) * area * cl * omega *
+           spread_attenuation /
            ((float)L.n_total * p_pick);
     selected_pdf = p_pick / omega;
+    }
   }
 
   /* Balance the selected proposal against every overlapping target. Without

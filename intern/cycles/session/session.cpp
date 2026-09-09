@@ -351,13 +351,11 @@ RenderWork Session::run_update_for_next_iteration()
   thread_scoped_lock scene_lock(scene->mutex);
   scene_lock_wait.finish();
 
-  /* Photon caustics (CyclesPlus): kill the in-flight async photon stream
-   * BEFORE buffers are reset and before the scene update swaps device data
-   * (BVH/geometry/shader tables) under it. A photon launch in flight reads
-   * the scene it was started against; the swap under it is an illegal
-   * address in photon_trace with the driver's OptiX context as collateral
-   * (2026-08-05, rapid material imports). Cheap no-op when idle. */
-  if (photon_map_ && delayed_reset_.do_reset) {
+  /* Photon caustics (CyclesPlus): only scene-data updates need to drain the
+   * async photon stream. Camera, viewport-size, and local-view buffer resets
+   * do not replace BVH/geometry/shader tables and must not stall navigation. */
+  const bool scene_update_pending = scene->need_reset(false);
+  if (photon_map_ && scene_update_pending) {
     photon_map_->abort_inflight();
   }
 
@@ -533,32 +531,9 @@ RenderWork Session::run_update_for_next_iteration()
          * one was consumed by a gather. */
         const bool allow_launch = static_cast<bool>(render_work) ||
                                   photon_extra_samples_ < PHOTON_EXTRA_SAMPLES_MAX;
-        /* Camera navigation: pause NEW photon generations. The map is
-         * camera-independent, so refinement traced mid-orbit is thrown away
-         * by the very next reset - all it did was steal ~80% of the GPU
-         * (measured: 12.5M photons / 0.165s per generation, back to back
-         * while orbiting) from the frames the navigation needs. Two braided
-         * signals, because each alone has a hole:
-         * - Blender's own navigating flag (set_navigating from view_draw,
-         *   true exactly while MMB-orbit/pan/transform runs) - the primary.
-         * - A 250ms window after any film-only reset: covers scripted view
-         *   changes and the tail of a drag. A same-iteration check alone is
-         *   NOT enough - the session loop iterates many times between
-         *   mouse events and re-allowed tracing a few ms into the drag
-         *   (first attempt, measured ineffective).
-         * The existing map keeps being gathered, so caustics stay visible
-         * while panning; tracing resumes ~0.25s after the last reset. F12
-         * is excluded (deterministic per-frame pacing must not skip launch
-         * opportunities; tile switches also reset buffers). */
-        if (reset_buffers && !reset_scene && !params.background) {
-          photon_nav_reset_time_ = time_dt();
-        }
-        const bool navigating = photon_navigating_ ||
-                                (time_dt() - photon_nav_reset_time_) < 0.25;
-        photon_profile_value("session.navigation_with_tail", this, navigating);
-        photon_profile_value("session.photon_launch_allowed", this, allow_launch && !navigating);
-        photon_map_->advance(allow_launch && !navigating,
-                             path_trace_->photon_gather_pending());
+        photon_profile_value("session.navigation_with_tail", this, photon_navigating_);
+        photon_profile_value("session.photon_launch_allowed", this, allow_launch);
+        photon_map_->advance(allow_launch, path_trace_->photon_gather_pending());
       }
     }
     else if (photon_map_) {
@@ -575,10 +550,8 @@ RenderWork Session::run_update_for_next_iteration()
      * get consumed at fresh points along the way. The first batch of extras
      * runs back to back, after that only a new photon generation justifies
      * another sample. */
-    const bool viewport_navigating = photon_navigating_ ||
-                                     (time_dt() - photon_nav_reset_time_) < 0.25;
     if (use_photon_caustics && !render_work && !params.background && photon_map_->grid() &&
-        !viewport_navigating && !progress.get_cancel())
+        !progress.get_cancel())
     {
       const bool smoothing = photon_extra_samples_ < PHOTON_EXTRA_SAMPLES_SMOOTH;
       const bool new_generation = path_trace_->photon_gather_pending() &&
@@ -886,8 +859,8 @@ void Session::set_navigating(bool navigating)
     photon_profile_value("session.navigation", this, navigating);
   }
   eviction_manager_.set_navigating(navigating);
-  /* Photon caustics: the session thread reads this to pause photon
-   * generations while the viewport navigates (see the advance() call). */
+  /* Keep navigation state available for profiling while photon work remains
+   * enabled during viewport interaction. */
   photon_navigating_ = navigating;
   path_trace_->set_photon_navigating(navigating);
 }

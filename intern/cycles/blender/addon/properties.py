@@ -642,13 +642,13 @@ class CyclesRenderSettings(bpy.types.PropertyGroup):
     )
 
     caustics_reflective: BoolProperty(
-        name="Reflective Caustics",
+        name="反射焦散",
         description="Use reflective caustics, resulting in a brighter image (more noise but added realism)",
         default=True,
     )
 
     use_photon_caustics: BoolProperty(
-        name="Photon Caustics",
+        name="光子焦散",
         description="Render caustics with a photon map traced at render start. "
         "Works with unmodified materials. Replaces path-traced caustics for the "
         "materials that cast photons; everything else renders unchanged",
@@ -656,13 +656,13 @@ class CyclesRenderSettings(bpy.types.PropertyGroup):
     )
 
     use_photon_volume_caustics: BoolProperty(
-        name="Volume Caustics",
+        name="体积焦散",
         description="Add single-scattering photon caustics inside uniform volumes",
         default=False,
     )
 
     photon_caustics_count: IntProperty(
-        name="Photon Count",
+        name="光子数量",
         description="Millions of photons per progressive pass. Caustics refine with every "
         "pass while rendering; higher counts refine faster",
         min=1, max=1000,
@@ -670,7 +670,7 @@ class CyclesRenderSettings(bpy.types.PropertyGroup):
     )
 
     photon_caustics_detail: FloatProperty(
-        name="Detail",
+        name="细节",
         description="Sharpness of the caustic pattern. Higher values shrink the gather "
         "radius; raise the photon count along with it to avoid grain",
         min=0.1, max=100.0,
@@ -678,7 +678,7 @@ class CyclesRenderSettings(bpy.types.PropertyGroup):
     )
 
     photon_caustics_intensity: FloatProperty(
-        name="Intensity",
+        name="强度",
         description="Artistic multiplier for the caustic brightness. 1.0 is the "
         "physically correct result; raise it to sell an effect, lower it to keep "
         "caustics subtle. Applies to the caustics only, never to the rest of the "
@@ -703,7 +703,7 @@ class CyclesRenderSettings(bpy.types.PropertyGroup):
     )
 
     caustics_refractive: BoolProperty(
-        name="Refractive Caustics",
+        name="折射焦散",
         description="Use refractive caustics, resulting in a brighter image (more noise but added realism)",
         default=True,
     )

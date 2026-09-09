@@ -286,6 +286,18 @@ ccl_device float3 photon_grid_beam_integral(KernelGlobals kg,
                                          -expm1f(-rate.y * span) / rate.y,
             fabsf(rate.z * span) < 1e-4f ? span * (1.0f - 0.5f * rate.z * span) :
                                          -expm1f(-rate.z * span) / rate.z);
+        /* Use a normalized Epanechnikov footprint across the beam cross
+         * section. Simpson sampling along the camera interval preserves the
+         * unit integral while replacing the hard cylinder edge that exposes
+         * individual photon beams as laser-like strips. */
+        const float tmid = 0.5f * (near_t + far_t);
+        const float q0 = dot(radial_o + radial_d * near_t, radial_o + radial_d * near_t);
+        const float qm = dot(radial_o + radial_d * tmid, radial_o + radial_d * tmid);
+        const float q1 = dot(radial_o + radial_d * far_t, radial_o + radial_d * far_t);
+        const float kernel0 = 2.0f * fmaxf(0.0f, 1.0f - q0 / radius2);
+        const float kernelm = 2.0f * fmaxf(0.0f, 1.0f - qm / radius2);
+        const float kernel1 = 2.0f * fmaxf(0.0f, 1.0f - q1 / radius2);
+        const float radial_kernel = (kernel0 + 4.0f * kernelm + kernel1) / 6.0f;
         float3 scattering;
         if (sd != nullptr) {
           /* Actual mixed closures include texture weights and colored scattering. */
@@ -310,7 +322,7 @@ ccl_device float3 photon_grid_beam_integral(KernelGlobals kg,
                               (4.0f * M_PI_F * denom_phase * sqrtf(max(denom_phase, 1e-12f)));
           scattering = phase * sigma_s;
         }
-        result += (scattering / (M_PI_F * radius2)) * attenuation * integral *
+        result += (scattering / (M_PI_F * radius2)) * radial_kernel * attenuation * integral *
                   make_float3(f4.x, f4.y, f4.z);
       }
     }

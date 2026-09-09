@@ -232,6 +232,9 @@ struct PhotonLight {
   float3 initial_volume_scatter = make_float3(0.0f);
   int initial_volume_object = OBJECT_NONE;
   int initial_volume_material = -1;
+  float tan_half_spread = 0.0f;
+  float normalize_spread = 1.0f;
+  bool normalize = true;
 };
 
 struct PhotonVolumeRegion {
@@ -975,15 +978,28 @@ void emit_photons(const PhotonTraceScene &s,
       const float3 xax = normalize(cross(up, zax));
       const float3 yax = cross(zax, xax);
       const float3 o = L.pos + xax * lx + yax * ly;
-      /* Uniform-cone sampling toward the target cap (matches the kernel). */
-      float3 ca = T->c - o;
-      const float dist = len(ca);
-      if (dist < 1e-6f) {
+      if (L.tan_half_spread == 0.0f) {
+        const float3 d = zax;
+        const float flux = (L.normalize ? 1.0f : area) /
+                           ((float)n_total * p_pick);
+        trace_photon(s,
+                     rng,
+                     o,
+                     d,
+                     L.color * flux,
+                     max_bounces,
+                     out,
+                     L.link_membership,
+                     L.lightgroup,
+                     beam_probability,
+                     L.initial_volume_sigma,
+                     L.initial_volume_scatter,
+                     L.initial_volume_material);
         continue;
       }
-      ca = ca * (1.0f / dist);
-      const float st = std::min(1.0f, T->r / std::max(dist, T->r));
-      const float cos_max = sqrtf(std::max(0.0f, 1.0f - st * st));
+      /* Sample the actual emission cone around the light normal. */
+      const float3 ca = zax;
+      const float cos_max = 1.0f / sqrtf(1.0f + sqr(L.tan_half_spread));
       const float ct = 1.0f - rng.uniform() * (1.0f - cos_max);
       const float sn = sqrtf(std::max(0.0f, 1.0f - ct * ct));
       const float ph = 2.0f * M_PI_F * rng.uniform();
@@ -996,7 +1012,13 @@ void emit_photons(const PhotonTraceScene &s,
         continue;
       }
       const float omega = 2 * M_PI_F * (1.0f - cos_max);
-      const float flux = inv_pi_area * area * cl * omega / ((float)n_total * p_pick) *
+      const float tan_a = sqrtf(std::max(0.0f, 1.0f - cl * cl)) /
+                          std::max(cl, 1e-8f);
+      const float spread_attenuation = (L.tan_half_spread == FLT_MAX) ? 1.0f :
+          std::max((L.tan_half_spread - tan_a) * L.normalize_spread, 0.0f);
+      const float flux = (L.normalize ? inv_pi_area : M_1_PI_F) * area * cl * omega *
+                         spread_attenuation /
+                          ((float)n_total * p_pick) *
                          photon_target_balance_weight(tg, T, p_pick / omega, o, d, false);
       trace_photon(s,
                    rng,
@@ -2435,6 +2457,13 @@ bool extract_scene(Scene *scene,
         L.sx = area->get_sizeu() * su;
         L.sy = area->get_sizev() * sv;
         L.shape = area->get_ellipse() ? 1 : 0;
+        L.normalize = light->get_normalize();
+        L.tan_half_spread = area->get_spread() >= M_PI_F ? FLT_MAX :
+                            tanf(0.5f * fmaxf(area->get_spread(), 0.0f));
+        const float half_spread = 0.5f * fmaxf(area->get_spread(), 0.0f);
+        L.normalize_spread = (L.tan_half_spread == FLT_MAX) ? 1.0f :
+            (half_spread > 0.05f ? 1.0f / (L.tan_half_spread - half_spread) :
+                                   3.0f / powf(std::max(half_spread, 1e-8f), 3.0f));
       }
       else {
         continue; /* background/portal: not supported in the spike */
@@ -3113,7 +3142,11 @@ int batch_size(const PhotonMapData &d, const uint64_t k)
      * reference GPU (~ppb/8.5 at high counts), so wall-clock stays level;
      * a full batch per generation would be 8x slower at high counts. */
     const int full = d.photons_per_batch;
-    const int steady = std::max(preview, full / 8);
+    /* Keep interactive GPU generations short enough to cancel promptly.
+     * Final renders retain the configured deterministic batch size. */
+    const int steady = d.interactive && d.gpu_trace ?
+                           std::min(std::max(preview, full / 8), 4 * 1024 * 1024) :
+                           std::max(preview, full / 8);
     if (d.interactive) {
       /* The viewport ramps by DOUBLING per generation, also index-only.
        * Sizing it from the measured rate was a feedback trap: an async
@@ -3303,6 +3336,9 @@ void fill_kernel_light(const PhotonLight &L,
   kl.axis = make_float4(L.axis.x, L.axis.y, L.axis.z, L.sx);
   /* extra.y = light group index, -1 = none (see PhotonTraceLight). */
   kl.extra = make_float4(L.sy, (float)L.lightgroup, (float)L.ies_slot, 0.0f);
+  kl.tan_half_spread = L.tan_half_spread;
+  kl.normalize_spread = L.normalize_spread;
+  kl.normalize = L.normalize ? 1 : 0;
   kl.initial_volume_sigma = make_float4(L.initial_volume_sigma.x,
                                         L.initial_volume_sigma.y,
                                         L.initial_volume_sigma.z,

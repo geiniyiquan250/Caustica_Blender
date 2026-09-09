@@ -654,7 +654,7 @@ class CYCLES_RENDER_PT_light_paths_clamping(CyclesButtonsPanel, Panel):
 
 
 class CYCLES_RENDER_PT_light_paths_caustics(CyclesButtonsPanel, Panel):
-    bl_label = "Caustics"
+    bl_label = "焦散"
     bl_parent_id = "CYCLES_RENDER_PT_light_paths"
 
     def draw(self, context):
@@ -666,20 +666,20 @@ class CYCLES_RENDER_PT_light_paths_caustics(CyclesButtonsPanel, Panel):
         cscene = scene.cycles
 
         col = layout.column()
-        col.prop(cscene, "blur_glossy")
-        col = layout.column(heading="Caustics", align=True)
+        col.prop(cscene, "blur_glossy", text="光泽模糊")
+        col = layout.column(heading="焦散", align=True)
         # Reflective/Refractive apply to both solvers: they filter which
         # materials cast photons just as they filter path-traced caustics.
-        col.prop(cscene, "caustics_reflective", text="Reflective")
-        col.prop(cscene, "caustics_refractive", text="Refractive")
-        col.prop(cscene, "use_photon_caustics", text="Photon Caustics Solver")
+        col.prop(cscene, "caustics_reflective", text="反射焦散")
+        col.prop(cscene, "caustics_refractive", text="折射焦散")
+        col.prop(cscene, "use_photon_caustics", text="光子焦散求解器")
         sub = col.column(align=True)
         sub.active = cscene.use_photon_caustics
-        sub.prop(cscene, "use_photon_volume_caustics", text="Volume Caustics")
-        sub.prop(cscene, "photon_caustics_count")
-        sub.prop(cscene, "photon_caustics_detail")
-        sub.prop(cscene, "photon_caustics_intensity", text="Intensity")
-        sub.prop(cscene, "photon_caustics_casters", text="Casters")
+        sub.prop(cscene, "use_photon_volume_caustics", text="体积焦散")
+        sub.prop(cscene, "photon_caustics_count", text="光子数量")
+        sub.prop(cscene, "photon_caustics_detail", text="细节")
+        sub.prop(cscene, "photon_caustics_intensity", text="强度")
+        sub.prop(cscene, "photon_caustics_casters", text="投射材质")
 
         # Multi-GPU needs no notice here any more: the photons are traced on
         # one card and the finished map is replicated to all of them
