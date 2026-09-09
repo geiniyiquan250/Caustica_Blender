@@ -1,3 +1,4 @@
+<img width="3824" height="1890" alt="ScreenShot_2026-09-09_212046_882" src="https://github.com/user-attachments/assets/6094ffa1-b695-4692-af5a-5ef1a44f7bd6" />
 <!--
 Keep this document short & concise,
 linking to external resources instead of including content in-line.
