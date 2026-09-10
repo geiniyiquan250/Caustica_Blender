@@ -316,6 +316,7 @@ void Integrator::device_update(Device *device, DeviceScene *dscene, Scene *scene
   kintegrator->photon_partition_pt = use_photon_caustics ? partition_pt : 0;
   kintegrator->photon_intensity = max(photon_caustics_intensity, 0.0f);
   kintegrator->filter_glossy = (filter_glossy == 0.0f) ? FLT_MAX : 1.0f / filter_glossy;
+  kintegrator->differential_widen_scale = min(1.0f, filter_glossy);
 
   kintegrator->filter_closures = 0;
   if (!use_direct_light) {
