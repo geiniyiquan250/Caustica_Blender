@@ -1284,6 +1284,55 @@ DenoiseParams BlenderSync::get_denoise_params(blender::Scene &b_scene,
         denoising.use = false;
       }
     }
+
+    if (denoising.type == DENOISER_DLSS) {
+      if (!Denoiser::is_device_supported(denoising.type, denoise_device_info)) {
+        denoising.use = false;
+      }
+      denoising.start_sample = 0;
+
+      enum DenoiserUpscaleQuality {
+        DENOISER_UPSCALE_NONE = 0,
+        DENOISER_UPSCALE_QUALITY = 1,
+        DENOISER_UPSCALE_BALANCED = 2,
+        DENOISER_UPSCALE_PERFORMANCE = 3,
+        DENOISER_UPSCALE_ULTRA_PERFORMANCE = 4,
+        DENOISER_UPSCALE_NUM,
+      };
+
+      switch ((DenoiserUpscaleQuality)get_enum(cscene,
+                                               "preview_denoising_upscale_quality",
+                                               DENOISER_UPSCALE_NUM,
+                                               DENOISER_UPSCALE_BALANCED))
+      {
+        case DENOISER_UPSCALE_NONE:
+          denoising.quality = DENOISER_QUALITY_HIGH;
+          denoising.upscale_factor = 1.0f;
+          break;
+        case DENOISER_UPSCALE_QUALITY:
+          denoising.quality = DENOISER_QUALITY_HIGH;
+          denoising.upscale_factor = 1.0f / 0.66666667f;
+          break;
+        case DENOISER_UPSCALE_BALANCED:
+        default:
+          denoising.quality = DENOISER_QUALITY_BALANCED;
+          denoising.upscale_factor = 1.0f / 0.58f;
+          break;
+        case DENOISER_UPSCALE_PERFORMANCE:
+          denoising.quality = DENOISER_QUALITY_FAST;
+          denoising.upscale_factor = 2.0f;
+          break;
+        case DENOISER_UPSCALE_ULTRA_PERFORMANCE:
+          denoising.quality = DENOISER_QUALITY_FAST;
+          denoising.upscale_factor = 3.0f;
+          break;
+      }
+
+      denoising.passes = DENOISER_PASS_ALBEDO | DENOISER_PASS_SPECULAR_ALBEDO |
+                         DENOISER_PASS_NORMAL | DENOISER_PASS_ROUGHNESS | DENOISER_PASS_DEPTH |
+                         DENOISER_PASS_MOTION | DENOISER_PASS_SPECULAR_MOTION;
+      return denoising;
+    }
   }
 
   switch (input_passes) {

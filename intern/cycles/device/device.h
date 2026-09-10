@@ -96,6 +96,7 @@ class DeviceInfo {
   /* Indicate that device execution has been optimized by Blender or vendor developers.
    * For LTS versions, this helps communicate that newer versions may have better performance. */
   bool has_execution_optimization = true;
+  bool meets_driver_requirement = true;
 
   KernelOptimizationLevel kernel_optimization_level =
       KERNEL_OPTIMIZATION_LEVEL_FULL;         /* Optimization level applied to path tracing

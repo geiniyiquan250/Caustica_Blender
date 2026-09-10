@@ -11,7 +11,7 @@
 
 #include "kernel/globals.h"
 
-#include "kernel/camera/projection.h"
+#include "kernel/camera/camera.h"
 
 #include "kernel/geom/attribute.h"
 #include "kernel/geom/curve.h"
@@ -368,6 +368,82 @@ primitive_motion_vector_backward_depth_delta(KernelGlobals kg, const ccl_private
   float linear_depth_delta_pre = motion_pre_cam.z - motion_center_cam.z;
 
   return make_float3(motion_pre.x, motion_pre.y, linear_depth_delta_pre);
+}
+
+/* Motion vector for reflections. */
+ccl_device_forceinline float4 primitive_camera_motion_vector(KernelGlobals kg,
+                                                             float3 motion_center,
+                                                             float3 motion_pre,
+                                                             float3 motion_post)
+{
+  Transform tfm;
+  if (kernel_data.cam.type == CAMERA_CUSTOM) {
+    tfm = kernel_data.cam.worldtocamera;
+    motion_center = normalize(transform_point(&tfm, motion_center));
+    tfm = kernel_data.cam.motion_pass_pre;
+    motion_pre = normalize(transform_point(&tfm, motion_pre));
+    tfm = kernel_data.cam.motion_pass_post;
+    motion_post = normalize(transform_point(&tfm, motion_post));
+  }
+  else if (kernel_data.cam.type != CAMERA_PANORAMA) {
+    ProjectionTransform projection = kernel_data.cam.worldtoraster;
+    motion_center = transform_perspective(&projection, motion_center);
+    projection = kernel_data.cam.perspective_pre;
+    motion_pre = transform_perspective(&projection, motion_pre);
+    projection = kernel_data.cam.perspective_post;
+    motion_post = transform_perspective(&projection, motion_post);
+  }
+  else {
+    tfm = kernel_data.cam.worldtocamera;
+    motion_center = make_float3(direction_to_panorama(
+        &kernel_data.cam, normalize(transform_point(&tfm, motion_center))));
+    motion_center.x *= kernel_data.cam.width;
+    motion_center.y *= kernel_data.cam.height;
+    tfm = kernel_data.cam.motion_pass_pre;
+    motion_pre = make_float3(direction_to_panorama(
+        &kernel_data.cam, normalize(transform_point(&tfm, motion_pre))));
+    motion_pre.x *= kernel_data.cam.width;
+    motion_pre.y *= kernel_data.cam.height;
+    tfm = kernel_data.cam.motion_pass_post;
+    motion_post = make_float3(direction_to_panorama(
+        &kernel_data.cam, normalize(transform_point(&tfm, motion_post))));
+    motion_post.x *= kernel_data.cam.width;
+    motion_post.y *= kernel_data.cam.height;
+  }
+
+  return make_float4((motion_pre - motion_center).x,
+                     (motion_pre - motion_center).y,
+                     (motion_center - motion_post).x,
+                     (motion_center - motion_post).y);
+}
+
+ccl_device_forceinline float3 project_reflection(const float3 reflector_P,
+                                                 const float3 reflector_N,
+                                                 const float3 P)
+{
+  float3 reflector_to_o = P - reflector_P;
+  float3 N = dot(reflector_N, reflector_to_o) < 0.0f ? -reflector_N : reflector_N;
+  float3 T, B;
+  make_orthonormals(N, &T, &B);
+
+  float3 P_o = to_local(reflector_to_o, T, B, N);
+  const float z_o = max(P_o.z, 1e-5f);
+  const float z_i = 1.0f / (-1.0f / z_o);
+  const float scale = -(z_i / z_o);
+  return reflector_P + to_global(make_float3(P_o.x * scale, P_o.y * scale, z_i), T, B, N);
+}
+
+ccl_device_forceinline float4 primitive_motion_vector_reflection(
+    KernelGlobals kg, const float3 reflector_P, const float3 reflector_N, const ccl_private ShaderData *sd)
+{
+  float3 motion_center, motion_pre, motion_post;
+  primitive_motion_data_without_camera(kg, sd, &motion_center, &motion_pre, &motion_post);
+
+  motion_center = project_reflection(reflector_P, reflector_N, motion_center);
+  motion_pre = project_reflection(reflector_P, reflector_N, motion_pre);
+  motion_post = project_reflection(reflector_P, reflector_N, motion_post);
+
+  return primitive_camera_motion_vector(kg, motion_center, motion_pre, motion_post);
 }
 
 CCL_NAMESPACE_END

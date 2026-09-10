@@ -1246,6 +1246,32 @@ ccl_gpu_kernel(GPU_KERNEL_BLOCK_NUM_THREADS, GPU_KERNEL_MAX_REGISTERS)
 ccl_gpu_kernel_postfix
 
 ccl_gpu_kernel(GPU_KERNEL_BLOCK_NUM_THREADS, GPU_KERNEL_MAX_REGISTERS)
+    ccl_gpu_kernel_signature(filter_color_preprocess_to_surface,
+                             const uint64_t color_surface,
+                             ccl_global float *render_buffer,
+                             const int full_x,
+                             const int full_y,
+                             const int width,
+                             const int height,
+                             const int offset,
+                             const int stride,
+                             const int pass_stride,
+                             const int pass_denoised)
+{
+#ifdef __KERNEL_CUDA__
+  const int work_index = ccl_gpu_global_id_x();
+  const int y = work_index / width;
+  const int x = work_index - y * width;
+  if (x >= width || y >= height) return;
+  const uint64_t index = offset + (x + full_x) + (y + full_y) * stride;
+  const ccl_global float *pixel = render_buffer + index * pass_stride + pass_denoised;
+  surf2Dwrite(make_float4(pixel[0], pixel[1], pixel[2], 1.0f),
+              color_surface, x * sizeof(float4), y);
+#endif
+}
+ccl_gpu_kernel_postfix
+
+ccl_gpu_kernel(GPU_KERNEL_BLOCK_NUM_THREADS, GPU_KERNEL_MAX_REGISTERS)
     ccl_gpu_kernel_signature(filter_guiding_preprocess,
                              ccl_global float *guiding_buffer,
                              const int guiding_pass_stride,
@@ -1326,6 +1352,76 @@ ccl_gpu_kernel(GPU_KERNEL_BLOCK_NUM_THREADS, GPU_KERNEL_MAX_REGISTERS)
 ccl_gpu_kernel_postfix
 
 ccl_gpu_kernel(GPU_KERNEL_BLOCK_NUM_THREADS, GPU_KERNEL_MAX_REGISTERS)
+    ccl_gpu_kernel_signature(filter_guiding_preprocess_to_surface,
+                             const uint64_t depth_surface,
+                             const uint64_t albedo_surface,
+                             const uint64_t specular_albedo_surface,
+                             const uint64_t normal_roughness_surface,
+                             const uint64_t motion_surface,
+                             const uint64_t specular_motion_surface,
+                             const ccl_global float *render_buffer,
+                             const int render_offset,
+                             const int render_stride,
+                             const int render_pass_stride,
+                             const int render_pass_sample_count,
+                             const int render_pass_depth,
+                             const int render_pass_albedo,
+                             const int render_pass_specular_albedo,
+                             const int render_pass_normal,
+                             const int render_pass_roughness,
+                             const int render_pass_motion,
+                             const int render_pass_specular_motion,
+                             const int full_x,
+                             const int full_y,
+                             const int width,
+                             const int height,
+                             const int num_samples)
+{
+#ifdef __KERNEL_CUDA__
+  const int work_index = ccl_gpu_global_id_x();
+  const int y = work_index / width;
+  const int x = work_index - y * width;
+  if (x >= width || y >= height) return;
+  const uint64_t index = render_offset + (x + full_x) + (y + full_y) * render_stride;
+  const ccl_global float *buffer = render_buffer + index * render_pass_stride;
+  const float scale = render_pass_sample_count == PASS_UNUSED ?
+                          1.0f / num_samples :
+                          1.0f / __float_as_uint(buffer[render_pass_sample_count]);
+  if (render_pass_depth != PASS_UNUSED)
+    surf2Dwrite(buffer[render_pass_depth] * scale, depth_surface, x * sizeof(float), y);
+  if (render_pass_albedo != PASS_UNUSED) {
+    float4 value = make_float4(buffer[render_pass_albedo] * scale,
+                               buffer[render_pass_albedo + 1] * scale,
+                               buffer[render_pass_albedo + 2] * scale, 1.0f);
+    value.x = clamp(value.x / (1.0f + value.x), 0.0f, 1.0f);
+    value.y = clamp(value.y / (1.0f + value.y), 0.0f, 1.0f);
+    value.z = clamp(value.z / (1.0f + value.z), 0.0f, 1.0f);
+    surf2Dwrite(value, albedo_surface, x * sizeof(float4), y);
+  }
+  if (render_pass_specular_albedo != PASS_UNUSED)
+    surf2Dwrite(make_float4(buffer[render_pass_specular_albedo] * scale,
+                             buffer[render_pass_specular_albedo + 1] * scale,
+                             buffer[render_pass_specular_albedo + 2] * scale, 1.0f),
+                specular_albedo_surface, x * sizeof(float4), y);
+  if (render_pass_normal != PASS_UNUSED && render_pass_roughness != PASS_UNUSED)
+    surf2Dwrite(make_float4(buffer[render_pass_normal] * scale,
+                             buffer[render_pass_normal + 1] * scale,
+                             buffer[render_pass_normal + 2] * scale,
+                             buffer[render_pass_roughness] * scale),
+                normal_roughness_surface, x * sizeof(float4), y);
+  if (render_pass_motion != PASS_UNUSED)
+    surf2Dwrite(make_float2(buffer[render_pass_motion] * scale,
+                             buffer[render_pass_motion + 1] * scale),
+                motion_surface, x * sizeof(float2), y);
+  if (render_pass_specular_motion != PASS_UNUSED)
+    surf2Dwrite(make_float2(buffer[render_pass_specular_motion] * scale,
+                             buffer[render_pass_specular_motion + 1] * scale),
+                specular_motion_surface, x * sizeof(float2), y);
+#endif
+}
+ccl_gpu_kernel_postfix
+
+ccl_gpu_kernel(GPU_KERNEL_BLOCK_NUM_THREADS, GPU_KERNEL_MAX_REGISTERS)
     ccl_gpu_kernel_signature(filter_guiding_set_fake_albedo,
                              ccl_global float *guiding_buffer,
                              const int guiding_pass_stride,
@@ -1351,6 +1447,65 @@ ccl_gpu_kernel(GPU_KERNEL_BLOCK_NUM_THREADS, GPU_KERNEL_MAX_REGISTERS)
   albedo_out[0] = 0.5f;
   albedo_out[1] = 0.5f;
   albedo_out[2] = 0.5f;
+}
+ccl_gpu_kernel_postfix
+
+ccl_gpu_kernel(GPU_KERNEL_BLOCK_NUM_THREADS, GPU_KERNEL_MAX_REGISTERS)
+    ccl_gpu_kernel_signature(filter_color_postprocess_from_surface,
+                             const uint64_t color_surface,
+                             ccl_global float *render_buffer,
+                             const int full_x,
+                             const int full_y,
+                             const int width,
+                             const int height,
+                             const int offset,
+                             const int stride,
+                             const int render_full_x,
+                             const int render_full_y,
+                             const int render_offset,
+                             const int render_stride,
+                             const int pass_stride,
+                             const int num_samples,
+                             const int pass_noisy,
+                             const int pass_denoised,
+                             const int pass_sample_count,
+                             const int num_components,
+                             const int use_compositing,
+                             const float upscale_factor)
+{
+#ifdef __KERNEL_CUDA__
+  const int work_index = ccl_gpu_global_id_x();
+  const int y = work_index / width;
+  const int x = work_index - y * width;
+  if (x >= width || y >= height) return;
+  const int rx = int(x / upscale_factor) + render_full_x;
+  const int ry = int(y / upscale_factor) + render_full_y;
+  const uint64_t render_index = render_offset + rx + ry * render_stride;
+  ccl_global float *buffer = render_buffer + render_index * pass_stride;
+  const float pixel_scale = pass_sample_count == PASS_UNUSED ?
+                                num_samples :
+                                __float_as_uint(buffer[pass_sample_count]);
+  const uint64_t output_index = offset + (x + full_x) + (y + full_y) * stride;
+  ccl_global float *output = render_buffer + output_index * pass_stride + pass_denoised;
+  float4 value;
+  surf2Dread(&value, color_surface, x * sizeof(float4), y);
+  output[0] = value.x;
+  output[1] = value.y;
+  output[2] = value.z;
+  if (pass_sample_count == PASS_UNUSED || upscale_factor == 1.0f) {
+    output[0] *= pixel_scale;
+    output[1] *= pixel_scale;
+    output[2] *= pixel_scale;
+  }
+  if (num_components == 3) return;
+  if (!use_compositing) {
+    output[3] = buffer[pass_noisy + 3];
+    if (pass_sample_count != PASS_UNUSED && upscale_factor != 1.0f) output[3] /= pixel_scale;
+  }
+  else {
+    output[3] = 0.0f;
+  }
+#endif
 }
 ccl_gpu_kernel_postfix
 

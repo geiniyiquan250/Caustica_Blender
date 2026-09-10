@@ -188,6 +188,20 @@ ccl_device_forceinline void film_write_denoising_features_surface(KernelGlobals 
     }
   }
 
+  else if (INTEGRATOR_STATE(state, path, bounce) == 1 && (path_flag & PATH_RAY_REFLECT))
+  {
+    if (kernel_data.film.pass_denoising_specular_motion != PASS_UNUSED) {
+      const float3 reflector_P = INTEGRATOR_STATE(state, ray, P);
+      const float3 reflector_N = INTEGRATOR_STATE(state, path, mis_origin_n);
+      const float4 specular_motion = primitive_motion_vector_reflection(
+          kg, reflector_P, reflector_N, sd);
+      film_write_pass_float(buffer + kernel_data.film.pass_denoising_specular_motion + 0,
+                            specular_motion.x);
+      film_write_pass_float(buffer + kernel_data.film.pass_denoising_specular_motion + 1,
+                            specular_motion.y);
+    }
+  }
+
   /* Portion deferred to the next bounce. Specularity uses the feature weight, transparent
    * always passes through. */
   const Spectrum deferred_albedo = specular_albedo * (1.0f - feature_weight) + transparent_albedo;

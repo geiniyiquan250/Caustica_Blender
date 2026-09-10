@@ -46,6 +46,9 @@ bool RenderScheduler::is_background() const
 void RenderScheduler::set_denoiser_params(const DenoiseParams &params)
 {
   denoiser_params_ = params;
+  if (is_denoiser_interactive()) {
+    state_.resolution_divider = pixel_size_;
+  }
 }
 
 bool RenderScheduler::is_denoiser_gpu_used() const
@@ -90,6 +93,9 @@ void RenderScheduler::set_sample_params(const int num_samples,
 
 int RenderScheduler::get_num_samples() const
 {
+  if (is_denoiser_interactive()) {
+    return Integrator::MAX_SAMPLES;
+  }
   return num_samples_;
 }
 
@@ -288,7 +294,7 @@ bool RenderScheduler::done() const
     return true;
   }
 
-  return get_num_rendered_samples() >= num_samples_;
+  return get_num_rendered_samples() >= get_num_samples();
 }
 
 RenderWork RenderScheduler::get_render_work()
@@ -344,6 +350,9 @@ RenderWork RenderScheduler::get_render_work()
   render_work.denoised_resolution_divider = state_.resolution_divider;
   if (denoiser_params_.use) {
     render_work.resolution_divider *= denoiser_params_.upscale_factor;
+  }
+  if (is_denoiser_interactive()) {
+    state_.num_rendered_samples = 0;
   }
 
   render_work.path_trace.start_sample = get_start_sample_to_path_trace();
@@ -886,7 +895,8 @@ int RenderScheduler::get_num_samples_to_path_trace() const
    * more than N samples. */
   const int num_samples_pot = round_num_samples_to_power_of_2(num_samples_per_update);
 
-  const int max_num_samples_to_render = sample_offset_ + num_samples_ - path_trace_start_sample;
+  const int max_num_samples_to_render = sample_offset_ + get_num_samples() -
+                                        path_trace_start_sample;
 
   int num_samples_to_render = min(num_samples_pot, max_num_samples_to_render);
 
@@ -958,7 +968,7 @@ int RenderScheduler::get_num_samples_to_path_trace() const
                                 min(num_samples_to_occupy, max_num_samples_to_render));
   }
 
-  if (limit_samples_per_update_) {
+  if (limit_samples_per_update_ && !is_denoiser_interactive()) {
     num_samples_to_render = min(limit_samples_per_update_, num_samples_to_render);
   }
 
@@ -1043,6 +1053,10 @@ bool RenderScheduler::work_need_denoise(bool &delayed, bool &ready_to_display)
   }
 
   /* Viewport render. */
+
+  if (is_denoiser_interactive()) {
+    return true;
+  }
 
   /* Navigation might render multiple samples at a lower resolution. Those are not to be counted as
    * final samples. */
@@ -1151,6 +1165,10 @@ bool RenderScheduler::work_need_rebalance()
 
 void RenderScheduler::update_start_resolution_divider()
 {
+  if (is_denoiser_interactive()) {
+    start_resolution_divider_ = 1;
+    return;
+  }
   if (default_start_resolution_divider_ == 0) {
     return;
   }
@@ -1230,6 +1248,11 @@ bool RenderScheduler::is_denoise_active_during_update() const
   }
 
   return true;
+}
+
+bool RenderScheduler::is_denoiser_interactive() const
+{
+  return denoiser_params_.use && denoiser_params_.type == DENOISER_DLSS;
 }
 
 bool RenderScheduler::work_is_usable_for_first_render_estimation(const RenderWork &render_work)

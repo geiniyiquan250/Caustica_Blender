@@ -208,6 +208,7 @@ void Film::device_update(Device *device, DeviceScene *dscene, Scene *scene)
   kfilm->pass_denoising_roughness = PASS_UNUSED;
   kfilm->pass_denoising_depth = PASS_UNUSED;
   kfilm->pass_denoising_backward_motion = PASS_UNUSED;
+  kfilm->pass_denoising_specular_motion = PASS_UNUSED;
   kfilm->pass_sample_count = PASS_UNUSED;
   kfilm->pass_render_time = PASS_UNUSED;
   kfilm->pass_adaptive_aux_buffer = PASS_UNUSED;
@@ -428,6 +429,9 @@ void Film::device_update(Device *device, DeviceScene *dscene, Scene *scene)
         break;
       case PASS_DENOISING_BACKWARD_MOTION:
         kfilm->pass_denoising_backward_motion = kfilm->pass_stride;
+        break;
+      case PASS_DENOISING_SPECULAR_MOTION:
+        kfilm->pass_denoising_specular_motion = kfilm->pass_stride;
         break;
 
       case PASS_SHADOW_CATCHER:
@@ -663,6 +667,9 @@ void Film::update_passes(Scene *scene)
     }
     if (denoiser_passes & DENOISER_PASS_BACKWARD_MOTION) {
       add_auto_pass(scene, PASS_DENOISING_BACKWARD_MOTION);
+    }
+    if (denoiser_passes & DENOISER_PASS_SPECULAR_MOTION) {
+      add_auto_pass(scene, PASS_DENOISING_SPECULAR_MOTION);
     }
   }
 

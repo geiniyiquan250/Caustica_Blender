@@ -154,6 +154,9 @@ def show_preview_denoise_active(context):
     if cscene.preview_denoiser == 'OPTIX':
         return has_optixdenoiser_gpu_devices(context)
 
+    if cscene.preview_denoiser == 'DLSS':
+        return has_dlss_gpu_devices(context)
+
     # OIDN is always available, thanks to CPU support
     return True
 
@@ -188,6 +191,10 @@ def get_effective_preview_denoiser(context, has_oidn_gpu):
 
 def has_oidn_gpu_devices(context):
     return context.preferences.addons[__package__].preferences.has_oidn_gpu_devices()
+
+
+def has_dlss_gpu_devices(context):
+    return context.preferences.addons[__package__].preferences.has_dlss_gpu_devices()
 
 
 def has_optixdenoiser_gpu_devices(context):
@@ -268,6 +275,11 @@ class CYCLES_RENDER_PT_sampling_viewport_denoise(CyclesButtonsPanel, Panel):
         sub = col.column()
         sub.active = show_preview_denoise_active(context)
         sub.prop(cscene, "preview_denoiser", text="Denoiser")
+
+        effective_preview_denoiser = get_effective_preview_denoiser(context, has_oidn_gpu_devices(context))
+        if effective_preview_denoiser == 'DLSS':
+            col.prop(cscene, "preview_denoising_upscale_quality", text="Upscale Mode")
+            return
 
         col.prop(cscene, "preview_denoising_input_passes", text="Passes")
 
