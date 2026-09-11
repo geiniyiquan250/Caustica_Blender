@@ -3,7 +3,9 @@
  * SPDX-License-Identifier: Apache-2.0 */
 
 #include "node_fresnel.h"
+/* === CyclesPlus: Glass Dispersion OSL Math Include Begin === */
 #include "node_math.h"
+/* === CyclesPlus: Glass Dispersion OSL Math Include End === */
 #include "stdcycles.h"
 
 shader node_principled_bsdf(string distribution = "multi_ggx",
@@ -30,8 +32,10 @@ shader node_principled_bsdf(string distribution = "multi_ggx",
                             color CoatTint = color(1.0, 1.0, 1.0),
                             float IOR = 1.45,
                             float TransmissionWeight = 0.0,
+                            /* === CyclesPlus: Glass Dispersion OSL Parameters Begin === */
                             float TransmissionDispersionScale = 0.0,
                             float TransmissionDispersionAbbeNumber = 20.0,
+                            /* === CyclesPlus: Glass Dispersion OSL Parameters End === */
                             color EmissionColor = 1.0,
                             float EmissionStrength = 0.0,
                             float Alpha = 1.0,
@@ -156,6 +160,7 @@ shader node_principled_bsdf(string distribution = "multi_ggx",
     else {
       color F0 = F0_from_ior(eta) * specular_tint;
       color F90 = color(1.0);
+      /* === CyclesPlus: Glass Dispersion OSL Closure Setup Begin === */
       float dispersion_scale = clamp(TransmissionDispersionScale, 0.0, 1.0);
       float abbe_number = max(TransmissionDispersionAbbeNumber, 0.0);
       float inv_abbe = safe_divide(dispersion_scale, abbe_number);
@@ -175,6 +180,7 @@ shader node_principled_bsdf(string distribution = "multi_ggx",
                                                                 thinfilm_ior,
                                                                 "inv_abbe",
                                                                 inv_abbe);
+      /* === CyclesPlus: Glass Dispersion OSL Closure Setup End === */
       BSDF = mix(TransmissionBSDF, BSDF, 1.0 - transmission);
     }
   }

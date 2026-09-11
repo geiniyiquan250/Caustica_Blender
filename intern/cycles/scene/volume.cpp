@@ -1219,8 +1219,14 @@ std::string VolumeManager::visualize_octree(const char *filename) const
 
 void VolumeManager::update_step_size(const Scene *scene, DeviceScene *dscene, Progress &progress)
 {
+  /* === CyclesPlus: Photon Volume Marching Assert Begin === */
+#ifdef WITH_CYCLES_SPPM_CAUSTICS
   assert(scene->integrator->get_volume_ray_marching() ||
          scene->integrator->get_use_photon_volume_caustics());
+#else
+  assert(scene->integrator->get_volume_ray_marching());
+#endif  /* WITH_CYCLES_SPPM_CAUSTICS */
+  /* === CyclesPlus: Photon Volume Marching Assert End === */
 
   if (!need_update_step_size && !dscene->volume_step_size.is_modified() &&
       !scene->integrator->volume_step_rate_is_modified() && !algorithm_modified_)
@@ -1292,14 +1298,24 @@ void VolumeManager::device_update(Device *device,
     update_visualization_ = false;
   }
 
+  /* === CyclesPlus: Photon Volume Step Size Update Begin === */
+#ifdef WITH_CYCLES_SPPM_CAUSTICS
   if (scene->integrator->get_use_photon_volume_caustics()) {
     /* Beam integration also needs shader evaluation steps with null scattering. */
     update_step_size(scene, dscene, progress);
+    algorithm_modified_ = false;
   }
   else if (algorithm_modified_) {
     dscene->volume_step_size.free();
+    algorithm_modified_ = false;
   }
-  algorithm_modified_ = false;
+#else
+  if (algorithm_modified_) {
+    dscene->volume_step_size.free();
+    algorithm_modified_ = false;
+  }
+#endif  /* WITH_CYCLES_SPPM_CAUSTICS */
+  /* === CyclesPlus: Photon Volume Step Size Update End === */
 }
 
 void VolumeManager::device_free(DeviceScene *dscene)

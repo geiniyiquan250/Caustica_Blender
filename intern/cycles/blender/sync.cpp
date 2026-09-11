@@ -380,9 +380,14 @@ void BlenderSync::sync_integrator(blender::ViewLayer &b_view_layer,
                                              get_float(cscene, "volume_step_rate");
   integrator->set_volume_step_rate(volume_step_rate);
 
+#ifdef WITH_CYCLES_SPPM_CAUSTICS
+  /* === CyclesPlus: Photon Caustics Integrator Sync Begin === */
   integrator->set_caustics_reflective(get_boolean(cscene, "caustics_reflective"));
   integrator->set_caustics_refractive(get_boolean(cscene, "caustics_refractive"));
-
+  /* === CyclesPlus: Photon Caustics Integrator Sync End === */
+#endif  /* WITH_CYCLES_SPPM_CAUSTICS */
+#ifdef WITH_CYCLES_SPPM_CAUSTICS
+  /* === CyclesPlus: Photon Multi-GPU And Solver Sync Begin === */
   /* CyclesPlus multi-GPU support hatch.
    *
    * Multi-card rigs are handled inside PhotonMap now: the photons are traced
@@ -422,6 +427,8 @@ void BlenderSync::sync_integrator(blender::ViewLayer &b_view_layer,
   /* 0 = ALL (every plausible material casts), 1 = SELECTED (flagged only). */
   integrator->set_photon_casters_selected(get_enum(cscene, "photon_caustics_casters", 2, 0) == 1);
   integrator->set_photon_caustics_intensity(get_float(cscene, "photon_caustics_intensity"));
+  /* === CyclesPlus: Photon Multi-GPU And Solver Sync End === */
+#endif  /* WITH_CYCLES_SPPM_CAUSTICS */
   integrator->set_filter_glossy(get_float(cscene, "blur_glossy"));
 
   integrator->set_use_pixel_jitter(get_boolean(cscene, "use_pixel_jitter"));
@@ -555,6 +562,8 @@ void BlenderSync::sync_integrator(blender::ViewLayer &b_view_layer,
     scrambling_distance = 1.0f;
   }
 
+  /* === CyclesPlus: Photon Scrambling Distance Sync Begin === */
+#ifdef WITH_CYCLES_SPPM_CAUSTICS
   /* CyclesPlus: scrambling distance correlates the RNG of whole pixel
    * tiles - the photon measurement points (the camera samples' hit
    * positions) then jitter in lockstep per tile, and the per-pixel SPPM
@@ -567,6 +576,8 @@ void BlenderSync::sync_integrator(blender::ViewLayer &b_view_layer,
                 "block up the photon caustic estimate)";
     scrambling_distance = 1.0f;
   }
+#endif  /* WITH_CYCLES_SPPM_CAUSTICS */
+  /* === CyclesPlus: Photon Scrambling Distance Sync End === */
 
   if (scrambling_distance != 1.0f) {
     LOG_INFO << "Using scrambling distance: " << scrambling_distance;
@@ -830,7 +841,11 @@ static bool get_known_pass_type(blender::RenderPass &b_pass, PassType &type, Pas
   MAP_PASS("Emission", PASS_EMISSION, false);
   MAP_PASS("Environment", PASS_BACKGROUND, false);
   MAP_PASS("Ambient Occlusion", PASS_AO, false);
+#ifdef WITH_CYCLES_SPPM_CAUSTICS
+  /* === CyclesPlus: Photon Caustics Pass Mapping Begin === */
   MAP_PASS("Caustics", PASS_CAUSTICS, false);
+  /* === CyclesPlus: Photon Caustics Pass Mapping End === */
+#endif  /* WITH_CYCLES_SPPM_CAUSTICS */
 
   MAP_PASS("BakePrimitive", PASS_BAKE_PRIMITIVE, false);
   MAP_PASS("BakeSeed", PASS_BAKE_SEED, false);
@@ -921,6 +936,8 @@ void BlenderSync::sync_render_passes(blender::RenderLayer &b_rlay,
     expected_passes.insert(name);
   }
 
+  /* === CyclesPlus: Photon Caustics Light Group Passes Begin === */
+#ifdef WITH_CYCLES_SPPM_CAUSTICS
   /* Photon caustics (CyclesPlus): whether the per-group caustics passes exist
    * is decided in engine.py, which already knows the Caustics pass toggle and
    * the photon checkbox. Reading back what Blender declared - instead of
@@ -954,6 +971,8 @@ void BlenderSync::sync_render_passes(blender::RenderLayer &b_rlay,
       expected_passes.insert(caustics_name);
     }
   }
+#endif  /* WITH_CYCLES_SPPM_CAUSTICS */
+  /* === CyclesPlus: Photon Caustics Light Group Passes End === */
 
   /* Sync the passes that were defined in engine.py. */
   for (blender::RenderPass &b_pass : b_rlay.passes) {
@@ -1285,6 +1304,8 @@ DenoiseParams BlenderSync::get_denoise_params(blender::Scene &b_scene,
       }
     }
 
+    /* === CyclesPlus: DLSS Denoise Parameters Begin === */
+#ifdef WITH_DLSS
     if (denoising.type == DENOISER_DLSS) {
       if (!Denoiser::is_device_supported(denoising.type, denoise_device_info)) {
         denoising.use = false;
@@ -1333,6 +1354,8 @@ DenoiseParams BlenderSync::get_denoise_params(blender::Scene &b_scene,
                          DENOISER_PASS_MOTION | DENOISER_PASS_SPECULAR_MOTION;
       return denoising;
     }
+#endif  /* WITH_DLSS */
+    /* === CyclesPlus: DLSS Denoise Parameters End === */
   }
 
   switch (input_passes) {

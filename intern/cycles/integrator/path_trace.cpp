@@ -8,9 +8,13 @@
 #include "device/device.h"
 
 #include "integrator/pass_accessor.h"
+/* === CyclesPlus: Photon Path Trace Includes Begin === */
+#ifdef WITH_CYCLES_SPPM_CAUSTICS
 #include "integrator/photon_map.h"
-#include "util/caustics_profiler.h"
 #include "kernel/integrator/photon_grid.h"
+#include "util/caustics_profiler.h"
+#endif  /* WITH_CYCLES_SPPM_CAUSTICS */
+/* === CyclesPlus: Photon Path Trace Includes End === */
 #include "integrator/path_trace_display.h"
 #include "integrator/path_trace_tile.h"
 #include "integrator/render_scheduler.h"
@@ -186,8 +190,12 @@ void PathTrace::render(const RenderWork &render_work)
 
 void PathTrace::render_pipeline(RenderWork render_work)
 {
+  /* === CyclesPlus: Photon Render Profile Begin === */
+#ifdef WITH_CYCLES_SPPM_CAUSTICS
   CCL_PHOTON_PROFILE_SCOPE("render.work", this, render_work.path_trace.num_samples);
   photon_profile_value("render.navigation", this, photon_navigating_);
+#endif  /* WITH_CYCLES_SPPM_CAUSTICS */
+  /* === CyclesPlus: Photon Render Profile End === */
   /* NOTE: Only check for "instant" cancel here. The user-requested cancel via progress is
    * checked in Session and the work in the event of cancel is to be finished here. */
 
@@ -220,6 +228,8 @@ void PathTrace::render_pipeline(RenderWork render_work)
     limit_samples = next_power_of_two(num_rendered_samples) - num_rendered_samples;
   }
 
+  /* === CyclesPlus: Photon Work Cap Begin === */
+#ifdef WITH_CYCLES_SPPM_CAUSTICS
   /* Photon caustics (SPPM): keep works short so finished photon generations
    * are consumed promptly. The per-pixel estimate variance drops with the
    * number of consumed generations, not with the sample count, so letting
@@ -236,6 +246,8 @@ void PathTrace::render_pipeline(RenderWork render_work)
     }();
     limit_samples = limit_samples ? min(limit_samples, photon_limit) : photon_limit;
   }
+#endif  /* WITH_CYCLES_SPPM_CAUSTICS */
+  /* === CyclesPlus: Photon Work Cap End === */
 
   /* Always publish the limit, including 0. The scheduler's setter can only
    * lower a non-zero limit (min semantics), so 0 is the one value that
@@ -249,12 +261,16 @@ void PathTrace::render_pipeline(RenderWork render_work)
     return;
   }
 
+  /* === CyclesPlus: Photon Gather Scheduling Begin === */
+#ifdef WITH_CYCLES_SPPM_CAUSTICS
   /* Photon caustics (SPPM): after every work either consume a freshly
    * uploaded photon generation into the per-pixel statistics, or refresh the
    * delta-written estimate in the combined pass so it stays in sync with the
    * grown sample count. Runs between path tracing and the adaptive sampling
    * filter, so the convergence check sees a consistent combined/aux state. */
   photon_gather_after_work();
+#endif  /* WITH_CYCLES_SPPM_CAUSTICS */
+  /* === CyclesPlus: Photon Gather Scheduling End === */
   if (render_cancel_.is_requested) {
     return;
   }
@@ -446,10 +462,14 @@ void PathTrace::init_render_buffers(const RenderWork &render_work)
       path_trace_work->zero_render_buffers();
     });
 
+    /* === CyclesPlus: Photon Gather Reset Begin === */
+#ifdef WITH_CYCLES_SPPM_CAUSTICS
     /* Photon caustics: zeroed buffers wiped the per-pixel SPPM statistics,
      * so the currently uploaded photon generation must be consumed again
      * after the next work. */
     photon_gather_pending_ = (photon_grid_generation_ != 0);
+#endif  /* WITH_CYCLES_SPPM_CAUSTICS */
+    /* === CyclesPlus: Photon Gather Reset End === */
 
     tile_buffer_read();
   }
@@ -462,6 +482,8 @@ void PathTrace::path_trace(RenderWork &render_work)
     return;
   }
 
+  /* === CyclesPlus: Photon Writer Sample Begin === */
+#ifdef WITH_CYCLES_SPPM_CAUSTICS
   /* Photon caustics: publish this work's global last sample - the GPU
    * hitpoint writer keys on it (a per-tile last sample spawns concurrent
    * writers per pixel when large images split one work into many tile
@@ -474,6 +496,8 @@ void PathTrace::path_trace(RenderWork &render_work)
       device_->const_copy_to("data", &device_scene_->data, sizeof(device_scene_->data));
     }
   }
+#endif  /* WITH_CYCLES_SPPM_CAUSTICS */
+  /* === CyclesPlus: Photon Writer Sample End === */
 
   LOG_DEBUG << "Will path trace " << render_work.path_trace.num_samples
             << " samples at the resolution divider " << render_work.resolution_divider;
@@ -1571,6 +1595,8 @@ void PathTrace::set_guiding_params(const GuidingParams &guiding_params, const bo
 #endif
 }
 
+/* === CyclesPlus: Photon Grid Upload Begin === */
+#ifdef WITH_CYCLES_SPPM_CAUSTICS
 void PathTrace::set_photon_grid(const struct PhotonGrid *grid)
 {
   /* Upload one finished progressive batch to the render device(s). Called
@@ -1845,7 +1871,11 @@ void PathTrace::set_photon_grid(const struct PhotonGrid *grid)
   LOG_INFO << "CyclesPlus photon map: uploaded generation " << generation << " ("
            << (grid ? grid->num_photons : 0) << " photons)";
 }
+#endif  /* WITH_CYCLES_SPPM_CAUSTICS */
+/* === CyclesPlus: Photon Grid Upload End === */
 
+/* === CyclesPlus: Photon Gather Begin === */
+#ifdef WITH_CYCLES_SPPM_CAUSTICS
 void PathTrace::photon_gather_after_work()
 {
   if (!device_scene_->data.integrator.use_photon_caustics) {
@@ -1888,6 +1918,8 @@ void PathTrace::photon_gather_after_work()
     path_trace_work->photon_gather(num_samples, consume);
   });
 }
+#endif  /* WITH_CYCLES_SPPM_CAUSTICS */
+/* === CyclesPlus: Photon Gather End === */
 
 void PathTrace::guiding_prepare_structures()
 {

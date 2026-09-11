@@ -517,10 +517,12 @@ void do_versions_after_linking_520(FileData *fd, Main *bmain)
     }
   }
 
+  /* === CyclesPlus: Glass Dispersion Animation Compatibility Begin === */
   if (!MAIN_VERSION_FILE_ATLEAST(bmain, 502, 45)) {
     /* Shift animation data to accommodate the new dispersion inputs. */
     version_node_socket_index_animdata(bmain, NTREE_SHADER, SH_NODE_BSDF_PRINCIPLED, 20, 2, 33);
   }
+  /* === CyclesPlus: Glass Dispersion Animation Compatibility End === */
 
   /**
    * Always bump subversion in BKE_blender_version.h when adding versioning

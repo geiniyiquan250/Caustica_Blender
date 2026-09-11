@@ -51,7 +51,11 @@ class PathTraceWorkCPU : public PathTraceWork {
   bool zero_render_buffers() override;
 
   int adaptive_sampling_converge_filter_count_active(const float threshold, bool reset) override;
+  /* === CyclesPlus: Photon CPU Work Override Begin === */
+#ifdef WITH_CYCLES_SPPM_CAUSTICS
   void photon_gather(const int num_samples, const int consume) override;
+#endif  /* WITH_CYCLES_SPPM_CAUSTICS */
+  /* === CyclesPlus: Photon CPU Work Override End === */
   void cryptomatte_postproces() override;
   void denoise_volume_guiding_buffers() override;
 

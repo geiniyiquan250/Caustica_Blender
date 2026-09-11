@@ -1468,9 +1468,13 @@ void OSLCompiler::generate_nodes(const ShaderNodeSet &nodes)
             if (node->has_bump()) {
               current_shader->has_bump_from_surface = true;
             }
+            /* === CyclesPlus: Glass Dispersion OSL Feature Detection Begin === */
+#ifdef WITH_CYCLES_SPPM_CAUSTICS
             if (node->has_dispersion()) {
               current_shader->has_dispersion = true;
             }
+#endif  /* WITH_CYCLES_SPPM_CAUSTICS */
+            /* === CyclesPlus: Glass Dispersion OSL Feature Detection End === */
           }
           else if (current_type == SHADER_TYPE_VOLUME) {
             if (node->has_spatial_varying()) {

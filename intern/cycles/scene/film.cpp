@@ -208,7 +208,11 @@ void Film::device_update(Device *device, DeviceScene *dscene, Scene *scene)
   kfilm->pass_denoising_roughness = PASS_UNUSED;
   kfilm->pass_denoising_depth = PASS_UNUSED;
   kfilm->pass_denoising_backward_motion = PASS_UNUSED;
+  /* === CyclesPlus: DLSS Specular Motion Pass State Begin === */
+#ifdef WITH_DLSS
   kfilm->pass_denoising_specular_motion = PASS_UNUSED;
+#endif  /* WITH_DLSS */
+  /* === CyclesPlus: DLSS Specular Motion Pass State End === */
   kfilm->pass_sample_count = PASS_UNUSED;
   kfilm->pass_render_time = PASS_UNUSED;
   kfilm->pass_adaptive_aux_buffer = PASS_UNUSED;
@@ -220,6 +224,8 @@ void Film::device_update(Device *device, DeviceScene *dscene, Scene *scene)
   kfilm->pass_guiding_probability = PASS_UNUSED;
   kfilm->pass_guiding_avg_roughness = PASS_UNUSED;
 
+  /* === CyclesPlus: Photon Pass State Begin === */
+#ifdef WITH_CYCLES_SPPM_CAUSTICS
   kfilm->pass_caustics = PASS_UNUSED;
   kfilm->pass_photon_hitpoint = PASS_UNUSED;
   kfilm->pass_photon_weight = PASS_UNUSED;
@@ -228,14 +234,19 @@ void Film::device_update(Device *device, DeviceScene *dscene, Scene *scene)
   kfilm->pass_caustics_lightgroup = PASS_UNUSED;
   kfilm->pass_photon_tau_group = PASS_UNUSED;
   kfilm->num_caustics_lightgroups = 0;
+#endif  /* WITH_CYCLES_SPPM_CAUSTICS */
+  /* === CyclesPlus: Photon Pass State End === */
 
   bool have_cryptomatte = false;
   bool have_aov_color = false;
   bool have_aov_value = false;
   bool have_lightgroup = false;
+  /* === CyclesPlus: Photon Pass State Variables Begin === */
+#ifdef WITH_CYCLES_SPPM_CAUSTICS
   bool have_caustics_lightgroup = false;
   bool have_photon_tau_group = false;
-
+#endif  /* WITH_CYCLES_SPPM_CAUSTICS */
+  /* === CyclesPlus: Photon Pass State Variables End === */
   for (size_t i = 0; i < scene->passes.size(); i++) {
     const Pass *pass = scene->passes[i];
 
@@ -289,6 +300,8 @@ void Film::device_update(Device *device, DeviceScene *dscene, Scene *scene)
        * offset instead of one derived from pass_lightgroup, so that Cycles'
        * pass_lightgroup + 3*index indexing cannot be disturbed by anything we
        * add here. */
+      /* === CyclesPlus: Photon Light Group Pass Allocation Begin === */
+#ifdef WITH_CYCLES_SPPM_CAUSTICS
       if (pass->get_type() == PASS_CAUSTICS) {
         if (!have_caustics_lightgroup) {
           kfilm->pass_caustics_lightgroup = kfilm->pass_stride;
@@ -296,10 +309,13 @@ void Film::device_update(Device *device, DeviceScene *dscene, Scene *scene)
         }
         kfilm->num_caustics_lightgroups++;
       }
-      else if (!have_lightgroup) {
+      else
+#endif  /* WITH_CYCLES_SPPM_CAUSTICS */
+      if (!have_lightgroup) {
         kfilm->pass_lightgroup = kfilm->pass_stride;
         have_lightgroup = true;
       }
+      /* === CyclesPlus: Photon Light Group Pass Allocation End === */
       kfilm->pass_stride += pass->get_info().num_components;
       continue;
     }
@@ -430,9 +446,13 @@ void Film::device_update(Device *device, DeviceScene *dscene, Scene *scene)
       case PASS_DENOISING_BACKWARD_MOTION:
         kfilm->pass_denoising_backward_motion = kfilm->pass_stride;
         break;
+      /* === CyclesPlus: DLSS Specular Motion Pass Offset Begin === */
+#ifdef WITH_DLSS
       case PASS_DENOISING_SPECULAR_MOTION:
         kfilm->pass_denoising_specular_motion = kfilm->pass_stride;
         break;
+#endif  /* WITH_DLSS */
+      /* === CyclesPlus: DLSS Specular Motion Pass Offset End === */
 
       case PASS_SHADOW_CATCHER:
         kfilm->pass_shadow_catcher = kfilm->pass_stride;
@@ -451,6 +471,8 @@ void Film::device_update(Device *device, DeviceScene *dscene, Scene *scene)
         kfilm->pass_sample_count = kfilm->pass_stride;
         break;
 
+#ifdef WITH_CYCLES_SPPM_CAUSTICS
+      /* === CyclesPlus: Photon Pass Offsets Begin === */
       case PASS_CAUSTICS:
         kfilm->pass_caustics = kfilm->pass_stride;
         break;
@@ -473,6 +495,8 @@ void Film::device_update(Device *device, DeviceScene *dscene, Scene *scene)
           have_photon_tau_group = true;
         }
         break;
+      /* === CyclesPlus: Photon Pass Offsets End === */
+#endif  /* WITH_CYCLES_SPPM_CAUSTICS */
       case PASS_RENDER_TIME:
         kfilm->pass_render_time = kfilm->pass_stride;
         break;
@@ -619,6 +643,7 @@ void Film::update_passes(Scene *scene)
     add_auto_pass(scene, PASS_ADAPTIVE_AUX_BUFFER);
   }
 
+#ifdef WITH_CYCLES_SPPM_CAUSTICS
   /* Create per-pixel SPPM statistics passes for photon caustics (CyclesPlus). */
   if (integrator->get_use_photon_caustics()) {
     add_auto_pass(scene, PASS_PHOTON_HITPOINT);
@@ -642,6 +667,7 @@ void Film::update_passes(Scene *scene)
       }
     }
   }
+#endif  /* WITH_CYCLES_SPPM_CAUSTICS */
 
   /* Create passes needed for denoising. */
   const bool use_denoise = integrator->get_use_denoise();
@@ -668,9 +694,13 @@ void Film::update_passes(Scene *scene)
     if (denoiser_passes & DENOISER_PASS_BACKWARD_MOTION) {
       add_auto_pass(scene, PASS_DENOISING_BACKWARD_MOTION);
     }
+    /* === CyclesPlus: DLSS Specular Motion Auto Pass Begin === */
+#ifdef WITH_DLSS
     if (denoiser_passes & DENOISER_PASS_SPECULAR_MOTION) {
       add_auto_pass(scene, PASS_DENOISING_SPECULAR_MOTION);
     }
+#endif  /* WITH_DLSS */
+    /* === CyclesPlus: DLSS Specular Motion Auto Pass End === */
   }
 
   /* Create passes for shadow catcher. */
@@ -711,6 +741,8 @@ void Film::update_passes(Scene *scene)
       add_auto_pass(scene, pass->get_type(), PassMode::DENOISED);
     }
 
+    /* === CyclesPlus: Photon Caustics Noisy Twin Begin === */
+#ifdef WITH_CYCLES_SPPM_CAUSTICS
     /* Photon caustics (CyclesPlus): a denoised pass needs a NOISY twin to
      * exist, because the gather kernel writes the raw values and the
      * denoiser reads them from there - the loop that assigns kfilm offsets
@@ -724,6 +756,8 @@ void Film::update_passes(Scene *scene)
     if (pass->get_type() == PASS_CAUSTICS && pass->get_lightgroup().empty() && use_denoise) {
       add_auto_pass(scene, PASS_CAUSTICS, PassMode::NOISY);
     }
+#endif  /* WITH_CYCLES_SPPM_CAUSTICS */
+    /* === CyclesPlus: Photon Caustics Noisy Twin End === */
   }
 
   if (bake_manager->get_baking()) {
@@ -866,6 +900,8 @@ void Film::finalize_passes(Scene *scene, const bool use_denoise)
         continue;
       }
 
+      /* === CyclesPlus: Photon Pass Light Group Merge Guard Begin === */
+#ifdef WITH_CYCLES_SPPM_CAUSTICS
       /* A light group pass and a plain one of the same type are different
        * passes, however similar they look here. Without this an UNNAMED
        * internal pass merges into whichever named light group pass happens to
@@ -876,6 +912,8 @@ void Film::finalize_passes(Scene *scene, const bool use_denoise)
       if (new_pass->get_lightgroup() != pass->get_lightgroup()) {
         continue;
       }
+#endif  /* WITH_CYCLES_SPPM_CAUSTICS */
+      /* === CyclesPlus: Photon Pass Light Group Merge Guard End === */
 
       /* If both passes have a name and the names are different, don't merge.
        * If either pass has a name, we'll use that name. */

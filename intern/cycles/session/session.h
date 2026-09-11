@@ -4,7 +4,11 @@
 
 #pragma once
 
+/* === CyclesPlus: Photon Navigation Atomic Include Begin === */
+#ifdef WITH_CYCLES_SPPM_CAUSTICS
 #include <atomic>
+#endif  /* WITH_CYCLES_SPPM_CAUSTICS */
+/* === CyclesPlus: Photon Navigation Atomic Include End === */
 #include <functional>
 
 #include "device/device.h"
@@ -28,7 +32,11 @@ class DeviceScene;
 class DisplayDriver;
 class OutputDriver;
 class PathTrace;
+/* === CyclesPlus: Photon Session Forward Declaration Begin === */
+#ifdef WITH_CYCLES_SPPM_CAUSTICS
 class PhotonMap;
+#endif  /* WITH_CYCLES_SPPM_CAUSTICS */
+/* === CyclesPlus: Photon Session Forward Declaration End === */
 class Progress;
 class RenderBuffers;
 class Scene;
@@ -257,6 +265,8 @@ class Session {
    * A path tracer for the current big-tile for an offline rendering. */
   unique_ptr<PathTrace> path_trace_;
 
+  /* === CyclesPlus: Photon Session State Begin === */
+#ifdef WITH_CYCLES_SPPM_CAUSTICS
   /* Photon caustics: photon map rebuilt on scene changes, consumed by the
    * render kernels via PathTrace. `photon_world_changed_` accumulates world
    * edits (captured before scene->update clears the modified flags) until
@@ -276,6 +286,8 @@ class Session {
    * run_update_for_next_iteration); forces a full photon restart on the
    * first iteration after the render ends. */
   bool photon_parked_ = false;
+#endif  /* WITH_CYCLES_SPPM_CAUSTICS */
+  /* === CyclesPlus: Photon Session State End === */
 };
 
 CCL_NAMESPACE_END

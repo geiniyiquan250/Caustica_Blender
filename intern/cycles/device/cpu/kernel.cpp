@@ -29,9 +29,13 @@ CPUKernels::CPUKernels()
       REGISTER_KERNEL(adaptive_sampling_convergence_check),
       REGISTER_KERNEL(adaptive_sampling_filter_x),
       REGISTER_KERNEL(adaptive_sampling_filter_y),
+      /* === CyclesPlus: Photon CPU Kernel Registration Begin === */
+#ifdef WITH_CYCLES_SPPM_CAUSTICS
       /* Photon caustics SPPM gather (CyclesPlus). */
       REGISTER_KERNEL(film_photon_gather),
       REGISTER_KERNEL(film_photon_smooth),
+#endif  /* WITH_CYCLES_SPPM_CAUSTICS */
+      /* === CyclesPlus: Photon CPU Kernel Registration End === */
       /* Volume Scattering Probability Guiding. */
       REGISTER_KERNEL(volume_guiding_filter_x),
       REGISTER_KERNEL(volume_guiding_filter_y),

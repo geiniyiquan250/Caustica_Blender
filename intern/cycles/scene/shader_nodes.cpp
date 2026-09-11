@@ -905,6 +905,8 @@ float SkyTextureNode::get_sun_average_radiance()
   return sun_contribution;
 }
 
+/* === CyclesPlus: Photon Sky Sun Radiance Implementation Begin === */
+#ifdef WITH_CYCLES_SPPM_CAUSTICS
 float3 SkyTextureNode::get_sun_disc_average_radiance_xyz()
 {
   const float angular_diameter = get_sun_size();
@@ -932,6 +934,8 @@ float3 SkyTextureNode::get_sun_disc_average_radiance_xyz()
    * applies per pixel (coefficient 0.6 -> disc average 0.8 of center). */
   return interp(pixel_bottom, pixel_top, 0.5f) * sun_intensity * 0.8f;
 }
+#endif  /* WITH_CYCLES_SPPM_CAUSTICS */
+/* === CyclesPlus: Photon Sky Sun Radiance Implementation End === */
 
 NODE_DEFINE(SkyTextureNode)
 {
@@ -2696,9 +2700,13 @@ NODE_DEFINE(PrincipledBsdfNode)
   SOCKET_IN_NORMAL(tangent, "Tangent", zero_float3(), SocketType::LINK_TANGENT);
 
   SOCKET_IN_FLOAT(transmission_weight, "Transmission Weight", 0.0f);
+  /* === CyclesPlus: Glass Dispersion Principled Sockets Begin === */
+#ifdef WITH_CYCLES_SPPM_CAUSTICS
   SOCKET_IN_FLOAT(transmission_dispersion_scale, "Transmission Dispersion Scale", 0.0f);
   SOCKET_IN_FLOAT(
       transmission_dispersion_abbe_number, "Transmission Dispersion Abbe Number", 20.0f);
+#endif  /* WITH_CYCLES_SPPM_CAUSTICS */
+  /* === CyclesPlus: Glass Dispersion Principled Sockets End === */
 
   SOCKET_IN_FLOAT(sheen_weight, "Sheen Weight", 0.0f);
   SOCKET_IN_FLOAT(sheen_roughness, "Sheen Roughness", 0.5f);
@@ -2774,10 +2782,14 @@ void PrincipledBsdfNode::simplify_settings(Scene * /* scene */)
     disconnect_unused_input("Thin Film IOR");
   }
 
+  /* === CyclesPlus: Glass Dispersion Principled Simplification Begin === */
+#ifdef WITH_CYCLES_SPPM_CAUSTICS
   if (!has_nonzero_weight("Transmission Weight")) {
     disconnect_unused_input("Transmission Dispersion Scale");
     disconnect_unused_input("Transmission Dispersion Abbe Number");
   }
+#endif  /* WITH_CYCLES_SPPM_CAUSTICS */
+  /* === CyclesPlus: Glass Dispersion Principled Simplification End === */
 }
 
 bool PrincipledBsdfNode::has_surface_transparent()
@@ -2831,11 +2843,15 @@ bool PrincipledBsdfNode::has_surface_bssrdf()
   return subsurface_has_positive_weight();
 }
 
+/* === CyclesPlus: Glass Dispersion Principled Query Begin === */
+#ifdef WITH_CYCLES_SPPM_CAUSTICS
 bool PrincipledBsdfNode::has_dispersion()
 {
   return has_nonzero_weight("Transmission Dispersion Scale") &&
          has_nonzero_weight("Transmission Weight");
 }
+#endif  /* WITH_CYCLES_SPPM_CAUSTICS */
+/* === CyclesPlus: Glass Dispersion Principled Query End === */
 
 bool PrincipledBsdfNode::has_nonzero_weight(const char *name)
 {
@@ -2896,10 +2912,14 @@ void PrincipledBsdfNode::compile(SVMCompiler &compiler)
           .specular_ior_level = compiler.input_float("Specular IOR Level"),
           .anisotropic = compiler.input_float("Anisotropic"),
           .anisotropic_rotation = compiler.input_float("Anisotropic Rotation"),
+          /* === CyclesPlus: Glass Dispersion Principled Kernel Data Begin === */
+#ifdef WITH_CYCLES_SPPM_CAUSTICS
           /* Transmission. */
           .transmission_dispersion_scale = compiler.input_float("Transmission Dispersion Scale"),
           .transmission_dispersion_abbe_number = compiler.input_float(
               "Transmission Dispersion Abbe Number"),
+#endif  /* WITH_CYCLES_SPPM_CAUSTICS */
+          /* === CyclesPlus: Glass Dispersion Principled Kernel Data End === */
           /* Emission. */
           .emission_color = compiler.input_float3("Emission Color"),
           .emission_strength = compiler.input_float("Emission Strength"),

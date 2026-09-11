@@ -89,6 +89,8 @@ KERNEL_DATA_ARRAY(KernelOctreeRoot, volume_tree_roots)
 KERNEL_DATA_ARRAY(int, volume_tree_root_ids)
 KERNEL_DATA_ARRAY(float, volume_step_size)
 
+/* === CyclesPlus: Photon Kernel Arrays Begin === */
+#ifdef WITH_CYCLES_SPPM_CAUSTICS
 /* photon caustics (CyclesPlus) */
 KERNEL_DATA_ARRAY(float4, photon_pos)
 KERNEL_DATA_ARRAY(float4, photon_beam_start)
@@ -100,6 +102,8 @@ KERNEL_DATA_ARRAY(float4, photon_volume_beam_end)
 KERNEL_DATA_ARRAY(float4, photon_volume_beam_flux)
 KERNEL_DATA_ARRAY(float4, photon_volume_beam_sigma)
 KERNEL_DATA_ARRAY(KernelPhotonBeamNode, photon_volume_beam_nodes)
+#endif  /* WITH_CYCLES_SPPM_CAUSTICS */
+/* === CyclesPlus: Photon Kernel Arrays End === */
 
 /* image textures */
 KERNEL_DATA_ARRAY(KernelImageTexture, image_textures)

@@ -6,7 +6,11 @@
 
 #include "device/device.h"
 
-#include "integrator/denoiser_dlss.h"
+/* === CyclesPlus: DLSS Denoiser Include Begin === */
+#ifdef WITH_DLSS
+#  include "integrator/denoiser_dlss.h"
+#endif  /* WITH_DLSS */
+/* === CyclesPlus: DLSS Denoiser Include End === */
 #include "integrator/denoiser_oidn.h"
 #include "session/display_driver.h"
 #ifdef WITH_OPENIMAGEDENOISE
@@ -103,6 +107,7 @@ bool use_gpu_oidn_denoiser(Device *denoiser_device, const DenoiseParams &params)
 #endif
 }
 
+/* === CyclesPlus: DLSS Denoiser Selection Begin === */
 bool use_dlss_denoiser(Device *denoiser_device, const DenoiseParams &params)
 {
 #ifdef WITH_DLSS
@@ -114,6 +119,7 @@ bool use_dlss_denoiser(Device *denoiser_device, const DenoiseParams &params)
   return false;
 #endif
 }
+/* === CyclesPlus: DLSS Denoiser Selection End === */
 
 DenoiseParams get_effective_denoise_params(Device *denoiser_device,
                                            Device *cpu_fallback_device,
@@ -145,7 +151,9 @@ DenoiseParams get_effective_denoise_params(Device *denoiser_device,
   if (is_cpu_denoiser_device == false) {
     if (use_optix_denoiser(single_denoiser_device, effective_denoise_params) ||
         use_gpu_oidn_denoiser(single_denoiser_device, effective_denoise_params) ||
+        /* === CyclesPlus: DLSS Effective Denoiser Selection Begin === */
         use_dlss_denoiser(single_denoiser_device, effective_denoise_params))
+        /* === CyclesPlus: DLSS Effective Denoiser Selection End === */
     {
       /* Denoising parameters are correct and there is no need to fall back to CPU OIDN. */
       return effective_denoise_params;
@@ -185,11 +193,13 @@ unique_ptr<Denoiser> Denoiser::create(Device *denoiser_device,
     }
 #endif
 
+    /* === CyclesPlus: DLSS Denoiser Creation Begin === */
 #ifdef WITH_DLSS
     if (use_dlss_denoiser(single_denoiser_device, effective_denoiser_params)) {
       return make_unique<DLSSDenoiser>(single_denoiser_device, effective_denoiser_params);
     }
 #endif
+    /* === CyclesPlus: DLSS Denoiser Creation End === */
   }
 
   if (!openimagedenoise_supported()) {
@@ -202,6 +212,7 @@ unique_ptr<Denoiser> Denoiser::create(Device *denoiser_device,
                                    effective_denoiser_params);
 }
 
+/* === CyclesPlus: Denoiser Device Support Query Begin === */
 bool Denoiser::is_device_supported(DenoiserType type, const DeviceInfo &denoise_device_info)
 {
   switch (type) {
@@ -221,6 +232,7 @@ bool Denoiser::is_device_supported(DenoiserType type, const DeviceInfo &denoise_
       return false;
   }
 }
+/* === CyclesPlus: Denoiser Device Support Query End === */
 
 DenoiserType Denoiser::automatic_viewport_denoiser_type(const DeviceInfo &denoise_device_info)
 {

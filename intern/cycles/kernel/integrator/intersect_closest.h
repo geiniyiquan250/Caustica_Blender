@@ -119,10 +119,14 @@ ccl_device_forceinline void integrator_split_shadow_catcher(
    * non-catcher objects. */
   INTEGRATOR_STATE_WRITE(state, path, flag) |= PATH_RAY_SHADOW_CATCHER_PASS;
 
+  /* === CyclesPlus: Photon Hitpoint Writer Split Guard Begin === */
+#ifdef WITH_CYCLES_SPPM_CAUSTICS
   /* Photon caustics: the split copy must not also write the SPPM hitpoint -
    * exactly one writer per pixel per work (PATH_RAY_PHOTON_HITPOINT_WRITER),
    * otherwise catcher scenes re-introduce the hitpoint write race. */
   INTEGRATOR_STATE_WRITE(state, path, flag) &= ~PATH_RAY_PHOTON_HITPOINT_WRITER;
+#endif  /* WITH_CYCLES_SPPM_CAUSTICS */
+  /* === CyclesPlus: Photon Hitpoint Writer Split Guard End === */
 
   /* Shadow catcher path does not use guiding.
    * Clear the path_segment to ensure we do not reference possibly stale data from the main path.

@@ -88,6 +88,11 @@ if(WITH_CYCLES_HIP_BINARIES AND WITH_CYCLES_DEVICE_HIP)
         -D WITH_NANOVDB)
     endif()
 
+    if(WITH_CYCLES_SPPM_CAUSTICS)
+      set(hip_flags ${hip_flags}
+        -D WITH_CYCLES_SPPM_CAUSTICS)
+    endif()
+
     if(WITH_CYCLES_DEBUG)
       set(hip_flags ${hip_flags} -D WITH_CYCLES_DEBUG)
     endif()

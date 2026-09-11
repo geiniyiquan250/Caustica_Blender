@@ -1152,9 +1152,11 @@ struct SVMNodePrincipledBsdfData {
   SVMInputFloat specular_ior_level;
   SVMInputFloat anisotropic;
   SVMInputFloat anisotropic_rotation;
+  /* === CyclesPlus: Glass Dispersion Principled Node Data Begin === */
   /* Transmission. */
   SVMInputFloat transmission_dispersion_scale;
   SVMInputFloat transmission_dispersion_abbe_number;
+  /* === CyclesPlus: Glass Dispersion Principled Node Data End === */
   /* Emission. */
   SVMInputFloat3 emission_color;
   SVMInputFloat emission_strength;

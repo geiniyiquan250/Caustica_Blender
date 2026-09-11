@@ -174,7 +174,9 @@ set(SRC_KERNEL_FILM_HEADERS
   film/volume_guiding_denoise.h
   film/cryptomatte_passes.h
   film/light_passes.h
+  # === CyclesPlus: Photon Film Header Begin ===
   film/photon_passes.h
+  # === CyclesPlus: Photon Film Header End ===
   film/read.h
   film/write.h
 )
@@ -193,11 +195,13 @@ set(SRC_KERNEL_INTEGRATOR_HEADERS
   integrator/megakernel.h
   integrator/mnee.h
   integrator/path_state.h
+  # === CyclesPlus: Photon Integrator Headers Begin ===
   integrator/photon_grid.h
   integrator/photon_lookup.h
   integrator/photon_profile_types.h
   integrator/photon_trace.h
   integrator/photon_trace_types.h
+  # === CyclesPlus: Photon Integrator Headers End ===
   integrator/shade_background.h
   integrator/shade_light.h
   integrator/shade_shadow.h

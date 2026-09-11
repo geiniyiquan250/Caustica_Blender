@@ -2,6 +2,7 @@
  *
  * SPDX-License-Identifier: Apache-2.0 */
 
+/* === CyclesPlus: Personal Photon Passes Begin === */
 /* Photon caustics: per-pixel SPPM statistics (stochastic progressive photon
  * mapping, Hachisuka/Jensen 2009).
  *
@@ -783,3 +784,4 @@ ccl_device void film_photon_smooth_pixel(KernelGlobals kg,
 }
 
 CCL_NAMESPACE_END
+/* === CyclesPlus: Personal Photon Passes End === */

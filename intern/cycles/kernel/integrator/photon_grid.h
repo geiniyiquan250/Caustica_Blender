@@ -2,6 +2,7 @@
  *
  * SPDX-License-Identifier: Apache-2.0 */
 
+/* === CyclesPlus: Personal Photon Grid Begin === */
 /* Photon caustics: shared definitions between the host-side builder
  * (integrator/photon_map.cpp) and the kernel lookup
  * (kernel/integrator/photon_lookup.h).
@@ -124,3 +125,4 @@ ccl_device_inline bool photon_deposit_is_volume(const float packed_lightgroup)
 }
 
 CCL_NAMESPACE_END
+/* === CyclesPlus: Personal Photon Grid End === */

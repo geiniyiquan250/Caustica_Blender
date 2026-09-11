@@ -1648,7 +1648,9 @@ elseif(WIN32)
       install(
         FILES
           ${CMAKE_SOURCE_DIR}/release/windows/batch/blender_debug_cycles.cmd
+          # === CyclesPlus: Caustics Profile Script Begin ===
           ${CMAKE_SOURCE_DIR}/release/windows/batch/blender_caustics_profile.cmd
+          # === CyclesPlus: Caustics Profile Script End ===
         DESTINATION ${TARGETDIR_EXE}
       )
     endif()

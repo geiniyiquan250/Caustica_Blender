@@ -50,7 +50,11 @@ NODE_DEFINE(Shader)
 
   SOCKET_BOOLEAN(use_transparent_shadow, "Use Transparent Shadow", true);
   SOCKET_BOOLEAN(use_bump_map_correction, "Bump Map Correction", true);
+  /* === CyclesPlus: Photon Shader Cast Socket Begin === */
+#ifdef WITH_CYCLES_SPPM_CAUSTICS
   SOCKET_BOOLEAN(photon_cast, "Cast Photon Caustics", false);
+#endif  /* WITH_CYCLES_SPPM_CAUSTICS */
+  /* === CyclesPlus: Photon Shader Cast Socket End === */
 
   static NodeEnum volume_sampling_method_enum;
   volume_sampling_method_enum.insert("distance", VOLUME_SAMPLING_DISTANCE);
@@ -106,7 +110,11 @@ Shader::Shader() : Node(get_node_type())
   has_light_path_node = false;
   has_aov_output_node = false;
   has_time_dependency = false;
+  /* === CyclesPlus: Glass Dispersion Shader State Begin === */
+#ifdef WITH_CYCLES_SPPM_CAUSTICS
   has_dispersion = false;
+#endif  /* WITH_CYCLES_SPPM_CAUSTICS */
+  /* === CyclesPlus: Glass Dispersion Shader State End === */
 
   emission_estimate = zero_float3();
   emission_sampling = EMISSION_SAMPLING_NONE;
@@ -567,7 +575,11 @@ void ShaderManager::device_update_pre(Device * /*device*/,
       shader->has_volume_attribute_dependency = false;
       shader->has_displacement = output->input("Displacement")->link != nullptr;
       shader->has_bump_from_surface = false;
+      /* === CyclesPlus: Glass Dispersion Shader State Reset Begin === */
+#ifdef WITH_CYCLES_SPPM_CAUSTICS
       shader->has_dispersion = false;
+#endif  /* WITH_CYCLES_SPPM_CAUSTICS */
+      /* === CyclesPlus: Glass Dispersion Shader State Reset End === */
 
       /* Determine both properties. */
       shader->has_light_path_node = false;
@@ -698,9 +710,13 @@ void ShaderManager::device_update_common(Device * /*device*/,
     if (shader->has_light_path_node) {
       flag |= SD_HAS_LIGHT_PATH_NODE;
     }
+    /* === CyclesPlus: Glass Dispersion Shader Flag Begin === */
+#ifdef WITH_CYCLES_SPPM_CAUSTICS
     if (shader->has_dispersion) {
       flag |= SD_REQUIRES_WAVELENGTH;
     }
+#endif  /* WITH_CYCLES_SPPM_CAUSTICS */
+    /* === CyclesPlus: Glass Dispersion Shader Flag End === */
 
     const uint32_t cryptomatte_id = util_murmur_hash3(
         shader->name.c_str(), shader->name.length(), 0);
@@ -712,7 +728,11 @@ void ShaderManager::device_update_common(Device * /*device*/,
     kshader->constant_emission[1] = shader->emission_estimate.y;
     kshader->constant_emission[2] = shader->emission_estimate.z;
     kshader->cryptomatte_id = util_hash_to_float(cryptomatte_id);
+#ifdef WITH_CYCLES_SPPM_CAUSTICS
+    /* === CyclesPlus: Photon Shader Cast Upload Begin === */
     kshader->photon_cast = shader->get_photon_cast() ? 1 : 0;
+    /* === CyclesPlus: Photon Shader Cast Upload End === */
+#endif  /* WITH_CYCLES_SPPM_CAUSTICS */
     kshader++;
 
     has_transparent_shadow |= (flag & SD_HAS_TRANSPARENT_SHADOW) != 0;

@@ -196,8 +196,12 @@ struct IntegratorStateGPU {
   /* Count number of queued kernels. */
   ccl_global IntegratorQueueCounter *queue_counter;
 
+  /* === CyclesPlus: Photon Volume Profile State Begin === */
+#ifdef WITH_CYCLES_SPPM_CAUSTICS
   /* Optional sampled volume diagnostics, owned by this GPU work queue. */
   ccl_global uint64_t *photon_volume_profile;
+#endif  /* WITH_CYCLES_SPPM_CAUSTICS */
+  /* === CyclesPlus: Photon Volume Profile State End === */
 
   /* Count number of kernels queued for specific shaders. */
   ccl_global int *sort_key_counter[DEVICE_GPU_KERNEL_INTEGRATOR_NUM];

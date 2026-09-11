@@ -40,6 +40,7 @@ set(LIB
 
 )
 
+# === CyclesPlus: OptiX CUDA Binaries Begin ===
 if(WITH_CYCLES_DEVICE_OPTIX)
   # CUDA version
   cuda_get_version(CUDA_VERSION)
@@ -155,6 +156,7 @@ if(WITH_CYCLES_DEVICE_OPTIX)
 
   add_dependencies(cycles_kernel cycles_kernel_optix)
 endif()
+# === CyclesPlus: OptiX CUDA Binaries End ===
 
 delayed_install(${CMAKE_CURRENT_SOURCE_DIR} "${SRC_KERNEL_DEVICE_OPTIX}" ${CYCLES_INSTALL_PATH}/source/kernel/device/optix)
 delayed_install(${CMAKE_CURRENT_SOURCE_DIR} "${SRC_KERNEL_DEVICE_OPTIX_HEADERS}" ${CYCLES_INSTALL_PATH}/source/kernel/device/optix)

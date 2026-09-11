@@ -8,7 +8,11 @@
 
 #include "kernel/film/denoising_passes.h"
 #include "kernel/film/light_passes.h"
+/* === CyclesPlus: Photon Volume Lookup Include Begin === */
+#ifdef WITH_CYCLES_SPPM_CAUSTICS
 #include "kernel/integrator/photon_lookup.h"
+#endif  /* WITH_CYCLES_SPPM_CAUSTICS */
+/* === CyclesPlus: Photon Volume Lookup Include End === */
 
 #include "kernel/integrator/guiding.h"
 #include "kernel/integrator/intersect_closest.h"
@@ -26,7 +30,11 @@
 
 #include "kernel/sample/lcg.h"
 
+/* === CyclesPlus: Photon Volume SVM Include Begin === */
+#ifdef WITH_CYCLES_SPPM_CAUSTICS
 #include "kernel/svm/photon_caustics.h"
+#endif  /* WITH_CYCLES_SPPM_CAUSTICS */
+/* === CyclesPlus: Photon Volume SVM Include End === */
 
 CCL_NAMESPACE_BEGIN
 
@@ -1736,6 +1744,8 @@ ccl_device_forceinline void volume_integrate_homogeneous(KernelGlobals kg,
     guiding_record_volume_emission(kg, state, emission);
   }
 
+  /* === CyclesPlus: Homogeneous Photon Beam Integration Begin === */
+#ifdef WITH_CYCLES_SPPM_CAUSTICS
   /* Integrate the photon beams over the complete camera segment. A single
    * volume hitpoint is only a point estimate and cannot form a continuous
    * light column; the beam query supplies the missing line integral. */
@@ -1776,6 +1786,8 @@ ccl_device_forceinline void volume_integrate_homogeneous(KernelGlobals kg,
                                                            profile);
     vstate.emission += throughput * beam_radiance * kernel_data.integrator.photon_intensity;
   }
+#endif  /* WITH_CYCLES_SPPM_CAUSTICS */
+  /* === CyclesPlus: Homogeneous Photon Beam Integration End === */
 
   /* Transmittance of the complete ray segment. */
   const Spectrum transmittance = volume_color_transmittance(coeff.sigma_t, ray_length);
@@ -2118,6 +2130,8 @@ ccl_device_inline bool volume_ray_marching_advance(const int step,
   return step < vstep.max_steps;
 }
 
+/* === CyclesPlus: Volume Photon Beam Query Begin === */
+#ifdef WITH_CYCLES_SPPM_CAUSTICS
 /* Integrate the complete beam segment independently of the sampled path scatter.
  * Reuse Cycles' spatial shader evaluation and stepping for textured/mixed media. */
 ccl_device Spectrum volume_integrate_photon_beams(
@@ -2230,6 +2244,8 @@ ccl_device Spectrum volume_integrate_photon_beams(
   return INTEGRATOR_STATE(state, path, throughput) * radiance *
          kernel_data.integrator.photon_intensity;
 }
+#endif  /* WITH_CYCLES_SPPM_CAUSTICS */
+/* === CyclesPlus: Volume Photon Beam Query End === */
 
 ccl_device void volume_shadow_ray_marching(KernelGlobals kg,
                                            IntegratorShadowState state,
@@ -2833,12 +2849,16 @@ ccl_device_forceinline bool integrate_volume_phase_scatter(
 
   path_state_next(kg, state, label, sd->flag);
 
+  /* === CyclesPlus: Volume Photon Chain Termination Begin === */
+#ifdef WITH_CYCLES_SPPM_CAUSTICS
   /* CyclesPlus: the photon walk carries no multiple scattering, so a scatter
    * event inside a medium leaves what the photon map delivers. End the chain. */
   if (kernel_data.integrator.photon_partition_pt) {
     INTEGRATOR_STATE_WRITE(state, path, flag) = INTEGRATOR_STATE(state, path, flag) &
                                                 ~PATH_RAY_PHOTON_CAUSTIC_CHAIN;
   }
+#endif  /* WITH_CYCLES_SPPM_CAUSTICS */
+  /* === CyclesPlus: Volume Photon Chain Termination End === */
   return true;
 }
 
@@ -3017,24 +3037,32 @@ ccl_device VolumeIntegrateEvent volume_integrate(KernelGlobals kg,
 
   /* TODO: expensive to zero closures? */
   VolumeIntegrateResult result = {};
+  /* === CyclesPlus: Heterogeneous Photon Beam Call Begin === */
+#ifdef WITH_CYCLES_SPPM_CAUSTICS
   const Spectrum beam_radiance = volume_is_homogeneous<false>(kg, state) ?
                                      zero_spectrum() :
                                      volume_integrate_photon_beams(kg, state, ray, &sd, &rng_state);
   if (sd.flag & SD_CACHE_MISS) {
     return VOLUME_PATH_CACHE_MISS;
   }
+#endif  /* WITH_CYCLES_SPPM_CAUSTICS */
+  /* === CyclesPlus: Heterogeneous Photon Beam Call End === */
   volume_integrate_null_scattering(kg, state, ray, &sd, &rng_state, render_buffer, &ls, result);
 
   if (sd.flag & SD_CACHE_MISS) {
     return VOLUME_PATH_CACHE_MISS;
   }
 
+  /* === CyclesPlus: Heterogeneous Photon Beam Film Write Begin === */
+#ifdef WITH_CYCLES_SPPM_CAUSTICS
   if (!is_zero(beam_radiance) &&
       light_link_object_match(kg, light_link_receiver_forward(kg, state), sd.object))
   {
     film_write_volume_emission(
         kg, state, beam_radiance, render_buffer, object_lightgroup(kg, sd.object));
   }
+#endif  /* WITH_CYCLES_SPPM_CAUSTICS */
+  /* === CyclesPlus: Heterogeneous Photon Beam Film Write End === */
   return volume_integrate_event(kg, state, ray, &sd, &rng_state, ls, result);
 }
 
@@ -3069,10 +3097,14 @@ volume_integrate_ray_marching(KernelGlobals kg,
   VolumeIntegrateResult result = {};
 
   const float step_size = volume_stack_step_size<false>(kg, state);
+  /* === CyclesPlus: Ray Marching Photon Beam Call Begin === */
+#ifdef WITH_CYCLES_SPPM_CAUSTICS
   const Spectrum beam_radiance = volume_integrate_photon_beams(kg, state, ray, &sd, &rng_state);
   if (sd.flag & SD_CACHE_MISS) {
     return VOLUME_PATH_CACHE_MISS;
   }
+#endif  /* WITH_CYCLES_SPPM_CAUSTICS */
+  /* === CyclesPlus: Ray Marching Photon Beam Call End === */
   volume_integrate_ray_marching(
       kg, state, ray, &sd, &rng_state, render_buffer, step_size, &ls, result);
 
@@ -3080,12 +3112,16 @@ volume_integrate_ray_marching(KernelGlobals kg,
     return VOLUME_PATH_CACHE_MISS;
   }
 
+  /* === CyclesPlus: Ray Marching Photon Beam Film Write Begin === */
+#ifdef WITH_CYCLES_SPPM_CAUSTICS
   if (!is_zero(beam_radiance) &&
       light_link_object_match(kg, light_link_receiver_forward(kg, state), sd.object))
   {
     film_write_volume_emission(
         kg, state, beam_radiance, render_buffer, object_lightgroup(kg, sd.object));
   }
+#endif  /* WITH_CYCLES_SPPM_CAUSTICS */
+  /* === CyclesPlus: Ray Marching Photon Beam Film Write End === */
   return volume_integrate_event(kg, state, ray, &sd, &rng_state, ls, result);
 }
 

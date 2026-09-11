@@ -7,7 +7,11 @@
 #include "device/cpu/device.h"
 #include "device/device.h"
 #include "integrator/path_trace.h"
+/* === CyclesPlus: Photon Caustics Includes Begin === */
+#ifdef WITH_CYCLES_SPPM_CAUSTICS
 #include "integrator/photon_map.h"
+#endif
+/* === CyclesPlus: Photon Caustics Includes End === */
 #include "util/caustics_profiler.h"
 #include "scene/background.h"
 #include "scene/camera.h"
@@ -113,9 +117,13 @@ Session::~Session()
   session_thread_->join();
   session_thread_.reset();
 
+  /* === CyclesPlus: Photon Map Destruction Begin === */
+#ifdef WITH_CYCLES_SPPM_CAUSTICS
   /* Destroy the photon map before the device: it owns device buffers and
    * a queue for GPU photon tracing whose destruction frees device memory. */
   photon_map_.reset();
+#endif
+  /* === CyclesPlus: Photon Map Destruction End === */
 
   /* Destroy path tracer, before the device. This is needed because destruction might need to
    * access device for device memory free.
@@ -127,7 +135,11 @@ Session::~Session()
   scene.reset();
   denoise_device_.reset();
   device.reset();
+  /* === CyclesPlus: Photon Profile Flush Begin === */
+#ifdef WITH_CYCLES_SPPM_CAUSTICS
   photon_profile_flush();
+#endif
+  /* === CyclesPlus: Photon Profile Flush End === */
 
   /* Stop task scheduler. */
   TaskScheduler::exit();
@@ -184,6 +196,8 @@ bool Session::ready_to_reset()
 
 void Session::run_main_render_loop()
 {
+  /* === CyclesPlus: Photon Parking Signal Begin === */
+#ifdef WITH_CYCLES_SPPM_CAUSTICS
   /* Signal interactive sessions to park their photon machinery for the
    * whole final render (see PhotonMap::background_render_begin). Scoped
    * to the loop so persistent-data sessions release it between renders. */
@@ -191,6 +205,8 @@ void Session::run_main_render_loop()
   if (signal_background) {
     PhotonMap::background_render_begin();
   }
+#endif
+  /* === CyclesPlus: Photon Parking Signal End === */
 
   path_trace_->zero_display();
 
@@ -266,9 +282,13 @@ void Session::run_main_render_loop()
     }
   }
 
-  if (signal_background) {
+  /* === CyclesPlus: Photon Parking Release Begin === */
+#ifdef WITH_CYCLES_SPPM_CAUSTICS
+  if (params.background) {
     PhotonMap::background_render_end();
   }
+#endif  /* WITH_CYCLES_SPPM_CAUSTICS */
+  /* === CyclesPlus: Photon Parking Release End === */
 }
 
 void Session::thread_run()
@@ -344,13 +364,25 @@ bool Session::is_session_thread_rendering()
 
 RenderWork Session::run_update_for_next_iteration()
 {
+  /* === CyclesPlus: Photon Session Profiling Begin === */
+#ifdef WITH_CYCLES_SPPM_CAUSTICS
   CCL_PHOTON_PROFILE_SCOPE("session.update_iteration", this);
+#endif  /* WITH_CYCLES_SPPM_CAUSTICS */
+  /* === CyclesPlus: Photon Session Profiling End === */
   RenderWork render_work;
 
+  /* === CyclesPlus: Photon Scene Lock Profiling Begin === */
+#ifdef WITH_CYCLES_SPPM_CAUSTICS
   PhotonProfileScope scene_lock_wait("session.scene_lock_wait", this);
+#endif  /* WITH_CYCLES_SPPM_CAUSTICS */
   thread_scoped_lock scene_lock(scene->mutex);
+#ifdef WITH_CYCLES_SPPM_CAUSTICS
   scene_lock_wait.finish();
+#endif  /* WITH_CYCLES_SPPM_CAUSTICS */
+  /* === CyclesPlus: Photon Scene Lock Profiling End === */
 
+  /* === CyclesPlus: Photon Scene Update Drain Begin === */
+#ifdef WITH_CYCLES_SPPM_CAUSTICS
   /* Photon caustics (CyclesPlus): only scene-data updates need to drain the
    * async photon stream. Camera, viewport-size, and local-view buffer resets
    * do not replace BVH/geometry/shader tables and must not stall navigation. */
@@ -358,12 +390,16 @@ RenderWork Session::run_update_for_next_iteration()
   if (photon_map_ && scene_update_pending) {
     photon_map_->abort_inflight();
   }
+#endif  /* WITH_CYCLES_SPPM_CAUSTICS */
+  /* === CyclesPlus: Photon Scene Update Drain End === */
 
   /* Perform delayed reset if requested. */
   const bool reset_buffers = delayed_reset_buffer_params();
 
   /* Update scene */
   const bool reset_scene = update_scene(delayed_reset_.do_reset);
+  /* === CyclesPlus: Photon Profile Recording Begin === */
+#ifdef WITH_CYCLES_SPPM_CAUSTICS
   if (photon_profile_enabled()) {
     photon_profile_value("session.reset_buffers", this, reset_buffers);
     photon_profile_value("session.reset_scene", this, reset_scene);
@@ -371,12 +407,18 @@ RenderWork Session::run_update_for_next_iteration()
     photon_profile_value("session.caustics_enabled", this,
                          scene->integrator->get_use_photon_caustics());
   }
+#endif
+  /* === CyclesPlus: Photon Profile Recording End === */
 
   /* Photon caustics: scene changes reset the extra-sample budget before the
    * sample target below is computed from it. */
+  /* === CyclesPlus: Photon Extra Samples Reset Begin === */
+#ifdef WITH_CYCLES_SPPM_CAUSTICS
   if (reset_scene) {
     photon_extra_samples_ = 0;
   }
+#endif  /* WITH_CYCLES_SPPM_CAUSTICS */
+  /* === CyclesPlus: Photon Extra Samples Reset End === */
 
   /* Update buffers for new parameters. After scene update which influences the passes used. */
   bool have_tiles = true;
@@ -395,6 +437,8 @@ RenderWork Session::run_update_for_next_iteration()
   /* Update denoiser settings. */
   {
     DenoiseParams denoise_params = scene->integrator->get_denoise_params();
+    /* === CyclesPlus: Photon OIDN GPU Routing Begin === */
+#ifdef WITH_CYCLES_SPPM_CAUSTICS
     /* CyclesPlus: OIDN's GPU backend brings a second CUDA context onto the
      * card; next to the OptiX photon raygen the repeated context traffic
      * hard-hangs the device after minutes of animation (bisected 2026-07-21:
@@ -436,6 +480,8 @@ RenderWork Session::run_update_for_next_iteration()
         denoise_params.type = DENOISER_OPTIX;
       }
     }
+#endif  /* WITH_CYCLES_SPPM_CAUSTICS */
+    /* === CyclesPlus: Photon OIDN GPU Routing End === */
     path_trace_->set_denoiser_params(denoise_params);
   }
 
@@ -452,12 +498,19 @@ RenderWork Session::run_update_for_next_iteration()
     path_trace_->set_guiding_params(guiding_params, guiding_reset);
   }
 
+  /* === CyclesPlus: Photon Sample Target Begin === */
+#ifdef WITH_CYCLES_SPPM_CAUSTICS
   /* Photon caustics: the sample target includes the extra samples scheduled
    * for caustic refinement after the configured count (see below). */
   render_scheduler_.set_sample_params(params.samples + photon_extra_samples_,
                                       params.use_sample_subset,
                                       params.sample_subset_offset,
                                       params.sample_subset_length);
+#else
+  render_scheduler_.set_sample_params(
+      params.samples, params.use_sample_subset, params.sample_subset_offset, params.sample_subset_length);
+#endif  /* WITH_CYCLES_SPPM_CAUSTICS */
+  /* === CyclesPlus: Photon Sample Target End === */
   render_scheduler_.set_time_limit(params.time_limit);
 
   while (have_tiles) {
@@ -475,6 +528,8 @@ RenderWork Session::run_update_for_next_iteration()
     }
   }
 
+  /* === CyclesPlus: Photon Caustics Update Logic Begin === */
+#ifdef WITH_CYCLES_SPPM_CAUSTICS
   /* Update photon caustics map (CyclesPlus). Progressive: on scene changes
    * the schedule restarts (objects moved -> photons retrace automatically);
    * between progressions finished refinement batches are swapped in, so the
@@ -569,6 +624,8 @@ RenderWork Session::run_update_for_next_iteration()
       }
     }
   }
+#endif
+  /* === CyclesPlus: Photon Caustics Update Logic End === */
 
   /* Evict unused image tiles periodically. */
   if (eviction_manager_.need_eviction(!render_work, switched_to_new_tile)) {
@@ -720,7 +777,11 @@ int2 Session::get_effective_tile_size() const
 
 bool Session::delayed_reset_buffer_params()
 {
+  /* === CyclesPlus: Session Buffer Reset Profiling Begin === */
+#ifdef WITH_CYCLES_SPPM_CAUSTICS
   CCL_PHOTON_PROFILE_SCOPE("session.buffer_reset", this);
+#endif  /* WITH_CYCLES_SPPM_CAUSTICS */
+  /* === CyclesPlus: Session Buffer Reset Profiling End === */
   /* Reset buffer parameters, delayed from when we got the reset call so we can complete
    * rendering the sample. Otherwise e.g. viewport navigation might reset without ever
    * finishing anything. */
@@ -781,7 +842,11 @@ void Session::update_buffers_for_params()
 
 void Session::reset(const SessionParams &session_params, const BufferParams &buffer_params)
 {
+  /* === CyclesPlus: Session Reset Profiling Begin === */
+#ifdef WITH_CYCLES_SPPM_CAUSTICS
   CCL_PHOTON_PROFILE_SCOPE("session.reset_request_and_cancel", this);
+#endif  /* WITH_CYCLES_SPPM_CAUSTICS */
+  /* === CyclesPlus: Session Reset Profiling End === */
   {
     const thread_scoped_lock reset_lock(delayed_reset_.mutex);
     const thread_scoped_lock pause_lock(pause_mutex_);
@@ -855,14 +920,18 @@ void Session::set_pause(bool pause)
 
 void Session::set_navigating(bool navigating)
 {
+  /* === CyclesPlus: Photon Navigation State Begin === */
+  eviction_manager_.set_navigating(navigating);
+#ifdef WITH_CYCLES_SPPM_CAUSTICS
   if (photon_profile_enabled() && photon_navigating_ != navigating) {
     photon_profile_value("session.navigation", this, navigating);
   }
-  eviction_manager_.set_navigating(navigating);
   /* Keep navigation state available for profiling while photon work remains
    * enabled during viewport interaction. */
   photon_navigating_ = navigating;
   path_trace_->set_photon_navigating(navigating);
+#endif
+  /* === CyclesPlus: Photon Navigation State End === */
 }
 
 void Session::set_output_driver(unique_ptr<OutputDriver> driver)
@@ -910,7 +979,11 @@ void Session::wait()
 
 bool Session::update_scene(const bool reset_samples)
 {
+  /* === CyclesPlus: Session Scene Update Profiling Begin === */
+#ifdef WITH_CYCLES_SPPM_CAUSTICS
   CCL_PHOTON_PROFILE_SCOPE("session.scene_update", this);
+#endif  /* WITH_CYCLES_SPPM_CAUSTICS */
+  /* === CyclesPlus: Session Scene Update Profiling End === */
   /* Update number of samples in the integrator.
    * Ideally this would need to happen once in `Session::set_samples()`, but the issue there is
    * the initial configuration when Session is created where the `set_samples()` is not used.
@@ -930,6 +1003,8 @@ bool Session::update_scene(const bool reset_samples)
 
   const bool reset = scene->need_reset(false);
 
+  /* === CyclesPlus: Photon World Change Tracking Begin === */
+#ifdef WITH_CYCLES_SPPM_CAUSTICS
   /* Photon caustics (CyclesPlus): remember world edits before scene->update
    * clears the modified flags - the photon map caches the expensive HDRI
    * virtual sun decomposition until the world actually changes. */
@@ -939,6 +1014,8 @@ bool Session::update_scene(const bool reset_samples)
       photon_world_changed_ = true;
     }
   }
+#endif  /* WITH_CYCLES_SPPM_CAUSTICS */
+  /* === CyclesPlus: Photon World Change Tracking End === */
 
   if (scene->update(progress)) {
     profiler.reset(scene->shaders.size(), scene->objects.size());

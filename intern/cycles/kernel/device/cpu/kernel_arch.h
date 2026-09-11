@@ -117,6 +117,8 @@ void KERNEL_FUNCTION_FULL_NAME(adaptive_sampling_filter_y)(const ThreadKernelGlo
                                                            const int offset,
                                                            int stride);
 
+/* === CyclesPlus: Photon CPU Kernel Declarations Begin === */
+#ifdef WITH_CYCLES_SPPM_CAUSTICS
 /* --------------------------------------------------------------------
  * Photon caustics SPPM gather (CyclesPlus).
  */
@@ -141,6 +143,8 @@ void KERNEL_FUNCTION_FULL_NAME(film_photon_smooth)(const ThreadKernelGlobalsCPU 
                                                    const int offset,
                                                    int stride,
                                                    const int num_samples);
+#endif  /* WITH_CYCLES_SPPM_CAUSTICS */
+/* === CyclesPlus: Photon CPU Kernel Declarations End === */
 
 /* --------------------------------------------------------------------
  * Cryptomatte.

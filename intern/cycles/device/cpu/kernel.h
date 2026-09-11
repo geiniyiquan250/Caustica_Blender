@@ -75,6 +75,8 @@ class CPUKernels {
   FilterXFunction adaptive_sampling_filter_x;
   FilterYFunction adaptive_sampling_filter_y;
 
+  /* === CyclesPlus: Photon CPU Kernel Members Begin === */
+#ifdef WITH_CYCLES_SPPM_CAUSTICS
   /* Photon caustics SPPM gather (CyclesPlus). */
 
   using FilmPhotonGatherFunction =
@@ -103,6 +105,8 @@ class CPUKernels {
                                  const int num_samples)>;
 
   FilmPhotonSmoothFunction film_photon_smooth;
+#endif  /* WITH_CYCLES_SPPM_CAUSTICS */
+  /* === CyclesPlus: Photon CPU Kernel Members End === */
 
   /* Volume Scattering Probability Guiding. */
   CPUKernelFunction<void (*)(const ThreadKernelGlobalsCPU *kg,

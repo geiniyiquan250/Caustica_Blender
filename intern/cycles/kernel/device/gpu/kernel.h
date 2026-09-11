@@ -795,6 +795,8 @@ ccl_gpu_kernel(GPU_KERNEL_BLOCK_NUM_THREADS, GPU_KERNEL_MAX_REGISTERS)
 }
 ccl_gpu_kernel_postfix
 
+/* === CyclesPlus: Photon GPU Kernels Begin === */
+#ifdef WITH_CYCLES_SPPM_CAUSTICS
 /* --------------------------------------------------------------------
  * Photon caustics SPPM gather (CyclesPlus).
  */
@@ -970,6 +972,8 @@ ccl_gpu_kernel(GPU_KERNEL_BLOCK_NUM_THREADS, GPU_KERNEL_MAX_REGISTERS)
   }
 }
 ccl_gpu_kernel_postfix
+#endif  /* WITH_CYCLES_SPPM_CAUSTICS */
+/* === CyclesPlus: Photon GPU Kernels End === */
 
 /* --------------------------------------------------------------------
  * Cryptomatte.

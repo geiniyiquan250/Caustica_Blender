@@ -17,7 +17,9 @@
 
 #include "kernel/osl/types.h"
 
+/* === CyclesPlus: Photon OSL Integration Include Begin === */
 #include "kernel/svm/photon_caustics.h"
+/* === CyclesPlus: Photon OSL Integration Include End === */
 
 CCL_NAMESPACE_BEGIN
 
@@ -57,8 +59,10 @@ ccl_device_forceinline bool osl_closure_skip(KernelGlobals kg,
   if ((scattering & LABEL_GLOSSY) && (path_visibility & PATH_RAY_VISIBILITY_DIFFUSE)) {
     const bool has_reflect = (scattering & LABEL_REFLECT);
     const bool has_transmit = (scattering & LABEL_TRANSMIT);
+    /* === CyclesPlus: Photon OSL Caustic Ownership Begin === */
     const bool reflect_caustics_disabled = !photon_caustics_reflective(kg, sd);
     const bool refract_caustics_disabled = !photon_caustics_refractive(kg, sd);
+    /* === CyclesPlus: Photon OSL Caustic Ownership End === */
 
     /* Reflective Caustics */
     if (reflect_caustics_disabled && has_reflect && !has_transmit) {
@@ -456,7 +460,9 @@ ccl_device void osl_closure_generalized_schlick_bsdf_setup(
      * to the F0...F90 range, this allows us to use the real IOR.
      * Computing it back from F0 might give a different result in case of specular
      * tinting. */
+    /* === CyclesPlus: Glass Dispersion OSL IOR Begin === */
     bsdf->ior = bsdf_glass_ior(sd, -closure->exponent, closure->inv_abbe);
+    /* === CyclesPlus: Glass Dispersion OSL IOR End === */
   }
   else {
     bsdf->ior = ior_from_F0(average(closure->f0));

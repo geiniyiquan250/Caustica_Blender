@@ -100,7 +100,11 @@ NODE_ABSTRACT_DEFINE(Light)
   SOCKET_BOOLEAN(cast_shadow, "Cast Shadow", true);
   SOCKET_BOOLEAN(use_mis, "Use Mis", false);
   SOCKET_BOOLEAN(use_caustics, "Shadow Caustics", false);
+  /* === CyclesPlus: Photon Light Cast Socket Begin === */
+#ifdef WITH_CYCLES_SPPM_CAUSTICS
   SOCKET_BOOLEAN(photon_cast, "Cast Photon Caustics", true);
+#endif  /* WITH_CYCLES_SPPM_CAUSTICS */
+  /* === CyclesPlus: Photon Light Cast Socket End === */
 
   SOCKET_INT(max_bounces, "Max Bounces", 1024);
 

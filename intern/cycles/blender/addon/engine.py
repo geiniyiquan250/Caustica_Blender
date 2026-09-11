@@ -214,8 +214,10 @@ def list_render_passes(scene, srl):
     if srl.use_pass_emit:                  yield (n_("Emission"),              "RGB",  'COLOR')
     if srl.use_pass_environment:           yield (n_("Environment"),           "RGB",  'COLOR')
     if srl.use_pass_ambient_occlusion:     yield (n_("Ambient Occlusion"),     "RGB",  'COLOR')
+    # === CyclesPlus: Photon Caustics Pass Begin ===
     if crl.use_pass_caustics and scene.cycles.use_photon_caustics: \
                                            yield (n_("Caustics"),              "RGB",  'COLOR')
+    # === CyclesPlus: Photon Caustics Pass End ===
     if crl.use_pass_shadow_catcher:        yield (n_("Shadow Catcher"),        "RGB",  'COLOR')
     # autopep8: on
 
@@ -264,6 +266,7 @@ def list_render_passes(scene, srl):
             yield (aov.name, "RGBA", 'COLOR')
 
     # Light groups.
+    # === CyclesPlus: Photon Caustics Light Groups Begin ===
     # Photon caustics (CyclesPlus): each light group also gets its caustic on
     # its own, so the lighting can be rebalanced in comp without re-rendering.
     # Gated on the Caustics pass itself, which is the user's off switch for the
@@ -273,6 +276,7 @@ def list_render_passes(scene, srl):
         yield ("Combined_%s" % lightgroup.name, "RGB", 'COLOR')
         if split_caustics:
             yield ("Caustics_%s" % lightgroup.name, "RGB", 'COLOR')
+    # === CyclesPlus: Photon Caustics Light Groups End ===
 
     # Path guiding debug passes.
     if _cycles.with_debug and scene.cycles.use_guiding:

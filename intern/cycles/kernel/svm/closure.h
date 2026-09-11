@@ -17,7 +17,9 @@
 
 #include "kernel/svm/math_util.h"
 #include "kernel/svm/node_types.h"
+/* === CyclesPlus: Photon SVM Integration Include Begin === */
 #include "kernel/svm/photon_caustics.h"
+/* === CyclesPlus: Photon SVM Integration Include End === */
 #include "kernel/svm/util.h"
 
 #include "kernel/util/colorspace.h"
@@ -256,8 +258,10 @@ ccl_device
     N = safe_normalize_fallback(N, sd->N);
 
 #ifdef __CAUSTICS_TRICKS__
+    /* === CyclesPlus: Photon SVM Reflective Ownership Begin === */
     const bool reflective_caustics = (photon_caustics_reflective(kg, sd) ||
                                       (ray_visibility & PATH_RAY_VISIBILITY_DIFFUSE) == 0);
+    /* === CyclesPlus: Photon SVM Reflective Ownership End === */
 #else
     const bool reflective_caustics = true;
 #endif
@@ -279,8 +283,10 @@ ccl_device
       N = safe_normalize_fallback(N, sd->N);
 
 #ifdef __CAUSTICS_TRICKS__
+      /* === CyclesPlus: Photon SVM Reflective Ownership Begin === */
       const bool reflective_caustics = (photon_caustics_reflective(kg, sd) ||
                                         (ray_visibility & PATH_RAY_VISIBILITY_DIFFUSE) == 0);
+      /* === CyclesPlus: Photon SVM Reflective Ownership End === */
 #else
       const bool reflective_caustics = true;
 #endif
@@ -353,8 +359,10 @@ ccl_device
       }
 
 #ifdef __CAUSTICS_TRICKS__
+      /* === CyclesPlus: Photon SVM Refractive Ownership Begin === */
       const bool refractive_caustics = (photon_caustics_refractive(kg, sd) ||
                                         (ray_visibility & PATH_RAY_VISIBILITY_DIFFUSE) == 0);
+      /* === CyclesPlus: Photon SVM Refractive Ownership End === */
 #else
       const bool refractive_caustics = true;
 #endif
@@ -393,6 +401,7 @@ ccl_device
                                     nullptr;
 
             if (bsdf && fresnel) {
+              /* === CyclesPlus: Glass Dispersion Principled Closed Begin === */
               const bool backfacing = (sd->runtime_flag & SR_BACKFACING);
               bsdf->N = valid_reflection_N;
               bsdf->T = zero_float3();
@@ -405,6 +414,7 @@ ccl_device
               const float inv_abbe = safe_divide(dispersion_scale, abbe_number);
               bsdf->ior = backfacing ? 1.0f / ior : ior;
               bsdf->ior = bsdf_glass_ior(sd, bsdf->ior, inv_abbe);
+              /* === CyclesPlus: Glass Dispersion Principled Closed End === */
 
               if (backfacing) {
                 adjust_thin_film_ior_at_backface(thinfilm.ior, bsdf->ior);
@@ -571,9 +581,11 @@ ccl_device
           kg, &offset);
 
 #ifdef __CAUSTICS_TRICKS__
+      /* === CyclesPlus: Photon SVM Metallic Ownership Begin === */
       if (!photon_caustics_reflective(kg, sd) && (ray_visibility & PATH_RAY_VISIBILITY_DIFFUSE)) {
         break;
       }
+      /* === CyclesPlus: Photon SVM Metallic Ownership End === */
 #endif
       ccl_private MicrofacetBsdf *bsdf = (ccl_private MicrofacetBsdf *)bsdf_alloc(
           sd, sizeof(MicrofacetBsdf), rgb_to_spectrum(make_float3(mix_weight)));
@@ -673,9 +685,11 @@ ccl_device
           kg, &offset);
 
 #ifdef __CAUSTICS_TRICKS__
+      /* === CyclesPlus: Photon SVM Glossy Ownership Begin === */
       if (!photon_caustics_reflective(kg, sd) && (ray_visibility & PATH_RAY_VISIBILITY_DIFFUSE)) {
         break;
       }
+      /* === CyclesPlus: Photon SVM Glossy Ownership End === */
 #endif
       float3 N = stack_load_float3_default(stack, bsdf_data.normal_offset, sd->N);
       N = safe_normalize_fallback(N, sd->N);
@@ -744,9 +758,11 @@ ccl_device
           svm_node_get<SVMNodeRefractionBsdfData>(kg, &offset);
 
 #ifdef __CAUSTICS_TRICKS__
+      /* === CyclesPlus: Photon SVM Refraction Ownership Begin === */
       if (!photon_caustics_refractive(kg, sd) && (ray_visibility & PATH_RAY_VISIBILITY_DIFFUSE)) {
         break;
       }
+      /* === CyclesPlus: Photon SVM Refraction Ownership End === */
 #endif
       float3 N = stack_load_float3_default(stack, bsdf_data.normal_offset, sd->N);
       N = safe_normalize_fallback(N, sd->N);
@@ -785,10 +801,12 @@ ccl_device
           kg, &offset);
 
 #ifdef __CAUSTICS_TRICKS__
+      /* === CyclesPlus: Photon SVM Glass Ownership Begin === */
       const bool reflective_caustics = (photon_caustics_reflective(kg, sd) ||
                                         (ray_visibility & PATH_RAY_VISIBILITY_DIFFUSE) == 0);
       const bool refractive_caustics = (photon_caustics_refractive(kg, sd) ||
                                         (ray_visibility & PATH_RAY_VISIBILITY_DIFFUSE) == 0);
+      /* === CyclesPlus: Photon SVM Glass Ownership End === */
       if (!(reflective_caustics || refractive_caustics)) {
         break;
       }
@@ -881,11 +899,13 @@ ccl_device
                                                                                           &offset);
 
 #ifdef __CAUSTICS_TRICKS__
+      /* === CyclesPlus: Photon SVM Toon Ownership Begin === */
       if (type == CLOSURE_BSDF_GLOSSY_TOON_ID && !photon_caustics_reflective(kg, sd) &&
           (ray_visibility & PATH_RAY_VISIBILITY_DIFFUSE))
       {
         break;
       }
+      /* === CyclesPlus: Photon SVM Toon Ownership End === */
 #endif
       float3 N = stack_load_float3_default(stack, bsdf_data.normal_offset, sd->N);
       N = safe_normalize_fallback(N, sd->N);

@@ -105,6 +105,8 @@ class ImageSlotTextureNode : public TextureNode {
 class ImageTextureNode : public ImageSlotTextureNode {
  public:
   SHADER_NODE_NO_CLONE_CLASS(ImageTextureNode)
+  /* === CyclesPlus: Photon Texture Mean Begin === */
+#ifdef WITH_CYCLES_SPPM_CAUSTICS
   /* CyclesPlus: average of this texture, sampled once during Blender sync.
    * The photon material classifier needs it to tell a wood floor carrying a
    * black metallic map from brass carrying a white one - one throws no
@@ -113,6 +115,8 @@ class ImageTextureNode : public ImageSlotTextureNode {
    * no verdict, and the classifier had to assume "might be a caster", so
    * tables and tiles started throwing photons. Negative = unknown. */
   float photon_texture_mean = -1.0f;
+#endif  /* WITH_CYCLES_SPPM_CAUSTICS */
+  /* === CyclesPlus: Photon Texture Mean End === */
   ShaderNode *clone(ShaderGraph *graph) const override;
   void attributes(Shader *shader, AttributeRequestSet *attributes) override;
   bool has_attribute_dependency() override
@@ -212,11 +216,15 @@ class SkyTextureNode : public TextureNode {
   }
 
   float get_sun_average_radiance();
+  /* === CyclesPlus: Photon Sky Sun Radiance Begin === */
+#ifdef WITH_CYCLES_SPPM_CAUSTICS
   /* Limb-darkened average radiance of the sun disc in XYZ (CyclesPlus):
    * feeds the photon map's analytic sky sun - the background evaluation
    * excludes the disc whenever sun guiding is active, so photon extraction
    * reconstructs it from the same sky-model precompute the kernel uses. */
   float3 get_sun_disc_average_radiance_xyz();
+#endif  /* WITH_CYCLES_SPPM_CAUSTICS */
+  /* === CyclesPlus: Photon Sky Sun Radiance End === */
 };
 
 class OutputNode : public ShaderNode {
@@ -407,6 +415,8 @@ class IESLightNode : public TextureNode {
   NODE_SOCKET_API(float, strength)
   NODE_SOCKET_API(float3, vector)
 
+  /* === CyclesPlus: Photon IES Slot Access Begin === */
+#ifdef WITH_CYCLES_SPPM_CAUSTICS
   /* CyclesPlus: the photon emitter needs the profile the same way the SVM
    * node does - it shapes emission, and photons are emitted host-side
    * rather than through the shader. */
@@ -414,6 +424,8 @@ class IESLightNode : public TextureNode {
   {
     return slot;
   }
+#endif  /* WITH_CYCLES_SPPM_CAUSTICS */
+  /* === CyclesPlus: Photon IES Slot Access End === */
 
  private:
   LightManager *light_manager;
@@ -569,7 +581,11 @@ class PrincipledBsdfNode : public BsdfBaseNode {
   bool subsurface_has_positive_weight();
   bool has_surface_bssrdf() override;
   bool has_bssrdf_bump() override;
+  /* === CyclesPlus: Glass Dispersion Node Interface Begin === */
+#ifdef WITH_CYCLES_SPPM_CAUSTICS
   bool has_dispersion() override;
+#endif  /* WITH_CYCLES_SPPM_CAUSTICS */
+  /* === CyclesPlus: Glass Dispersion Node Interface End === */
   void simplify_settings(Scene *scene) override;
 
   NODE_SOCKET_API(float3, base_color)
@@ -593,8 +609,12 @@ class PrincipledBsdfNode : public BsdfBaseNode {
   NODE_SOCKET_API(float, anisotropic_rotation)
   NODE_SOCKET_API(float3, tangent)
   NODE_SOCKET_API(float, transmission_weight)
+  /* === CyclesPlus: Glass Dispersion Node Sockets Begin === */
+#ifdef WITH_CYCLES_SPPM_CAUSTICS
   NODE_SOCKET_API(float, transmission_dispersion_scale)
   NODE_SOCKET_API(float, transmission_dispersion_abbe_number)
+#endif  /* WITH_CYCLES_SPPM_CAUSTICS */
+  /* === CyclesPlus: Glass Dispersion Node Sockets End === */
   NODE_SOCKET_API(float, sheen_weight)
   NODE_SOCKET_API(float, sheen_roughness)
   NODE_SOCKET_API(float3, sheen_tint)

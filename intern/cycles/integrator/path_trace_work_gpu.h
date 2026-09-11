@@ -47,7 +47,11 @@ class PathTraceWorkGPU : public PathTraceWork {
   bool zero_render_buffers() override;
 
   int adaptive_sampling_converge_filter_count_active(const float threshold, bool reset) override;
+  /* === CyclesPlus: Photon GPU Work Override Begin === */
+#ifdef WITH_CYCLES_SPPM_CAUSTICS
   void photon_gather(const int num_samples, const int consume) override;
+#endif  /* WITH_CYCLES_SPPM_CAUSTICS */
+  /* === CyclesPlus: Photon GPU Work Override End === */
   void cryptomatte_postproces() override;
   void denoise_volume_guiding_buffers() override;
 
@@ -135,7 +139,11 @@ class PathTraceWorkGPU : public PathTraceWork {
   int integrator_state_soa_volume_stack_size_ = 0;
   /* Keep track of number of queued kernels. */
   device_vector<IntegratorQueueCounter> integrator_queue_counter_;
+  /* === CyclesPlus: Photon GPU Profile Buffer Begin === */
+#ifdef WITH_CYCLES_SPPM_CAUSTICS
   device_vector<uint64_t> photon_volume_profile_;
+#endif  /* WITH_CYCLES_SPPM_CAUSTICS */
+  /* === CyclesPlus: Photon GPU Profile Buffer End === */
   /* Shader sorting. */
   device_vector<int> integrator_shader_sort_counter_;
   device_vector<int> integrator_shader_raytrace_sort_counter_;

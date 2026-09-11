@@ -21,7 +21,11 @@
 
 #include "kernel/types.h"
 
+/* === CyclesPlus: Photon Background Integration Include Begin === */
+#ifdef WITH_CYCLES_SPPM_CAUSTICS
 #include "kernel/svm/photon_caustics.h"
+#endif  /* WITH_CYCLES_SPPM_CAUSTICS */
+/* === CyclesPlus: Photon Background Integration Include End === */
 
 CCL_NAMESPACE_BEGIN
 
@@ -48,14 +52,18 @@ ccl_device Spectrum integrator_eval_background_shader(KernelGlobals kg,
   const PathRayVisibility path_visibility = INTEGRATOR_STATE(state, path, visibility);
   const uint32_t path_flag = INTEGRATOR_STATE(state, path, flag);
 
-  /* CyclesPlus: the photon map already carries this light along this chain. */
   /* Use visibility flag to skip lights. */
-  if (photon_caustic_path_owned(kg, path_flag) ||
-      !is_light_shader_visible_to_path(shader, path_visibility, path_flag))
-  {
+  /* === CyclesPlus: Photon Background Path Ownership Begin === */
+  bool photon_path_owned = false;
+#ifdef WITH_CYCLES_SPPM_CAUSTICS
+  /* CyclesPlus: the photon map already carries this light along this chain. */
+  photon_path_owned = photon_caustic_path_owned(kg, path_flag);
+#endif  /* WITH_CYCLES_SPPM_CAUSTICS */
+  if (photon_path_owned || !is_light_shader_visible_to_path(shader, path_visibility, path_flag)) {
     result = SHADER_EVAL_EMPTY;
     return zero_spectrum();
   }
+  /* === CyclesPlus: Photon Background Path Ownership End === */
 
   /* Use fast constant background color if available. */
   Spectrum L = zero_spectrum();
@@ -185,10 +193,14 @@ ccl_device_inline ShaderEvalResult integrate_sun_lights(
       continue;
     }
 
+    /* === CyclesPlus: Photon Sun Path Ownership Begin === */
+#ifdef WITH_CYCLES_SPPM_CAUSTICS
     /* CyclesPlus: the photon map already carries this sun along this chain. */
     if (photon_caustic_path_owned(kg, INTEGRATOR_STATE(state, path, flag))) {
       continue;
     }
+#endif  /* WITH_CYCLES_SPPM_CAUSTICS */
+    /* === CyclesPlus: Photon Sun Path Ownership End === */
 
     LightEval light_eval = sun_light_eval_from_intersection(klight, ray_D);
     if (light_eval.eval_fac == 0.0f) {

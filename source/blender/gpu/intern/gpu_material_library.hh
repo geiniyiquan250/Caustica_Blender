@@ -15,7 +15,9 @@
 namespace blender {
 
 #define MAX_FUNCTION_NAME 64
+/* === CyclesPlus: Glass Dispersion GPU Parameter Capacity Begin === */
 #define MAX_PARAMETER 37
+/* === CyclesPlus: Glass Dispersion GPU Parameter Capacity End === */
 
 enum GPUFunctionQual {
   FUNCTION_QUAL_IN,

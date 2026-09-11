@@ -11,7 +11,13 @@
 
 #include "kernel/globals.h"
 
+/* === CyclesPlus: DLSS Reflection Motion Camera Include Begin === */
+#ifdef WITH_DLSS
 #include "kernel/camera/camera.h"
+#else
+#  include "kernel/camera/projection.h"
+#endif  /* WITH_DLSS */
+/* === CyclesPlus: DLSS Reflection Motion Camera Include End === */
 
 #include "kernel/geom/attribute.h"
 #include "kernel/geom/curve.h"
@@ -370,6 +376,8 @@ primitive_motion_vector_backward_depth_delta(KernelGlobals kg, const ccl_private
   return make_float3(motion_pre.x, motion_pre.y, linear_depth_delta_pre);
 }
 
+/* === CyclesPlus: DLSS Reflection Motion Vectors Begin === */
+#ifdef WITH_DLSS
 /* Motion vector for reflections. */
 ccl_device_forceinline float4 primitive_camera_motion_vector(KernelGlobals kg,
                                                              float3 motion_center,
@@ -445,5 +453,7 @@ ccl_device_forceinline float4 primitive_motion_vector_reflection(
 
   return primitive_camera_motion_vector(kg, motion_center, motion_pre, motion_post);
 }
+#endif  /* WITH_DLSS */
+/* === CyclesPlus: DLSS Reflection Motion Vectors End === */
 
 CCL_NAMESPACE_END

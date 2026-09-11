@@ -145,7 +145,12 @@ CCL_NAMESPACE_BEGIN
 #define __RAY_DIFFERENTIALS__
 #define __VISIBILITY_FLAG__
 #define __SVM__
+
+/* === CyclesPlus: Glass Dispersion Feature Begin === */
+#ifdef WITH_CYCLES_SPPM_CAUSTICS
 #define __SPECTRAL__
+#endif  /* WITH_CYCLES_SPPM_CAUSTICS */
+/* === CyclesPlus: Glass Dispersion Feature End === */
 
 /* Device specific features */
 

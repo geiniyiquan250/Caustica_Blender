@@ -828,8 +828,10 @@ const char *ED_info_statusbar_string_ex(Main *bmain,
     if (info[0]) {
       ofs += BLI_snprintf_utf8_rlen(info + ofs, len - ofs, " | ");
     }
+    /* === CyclesPlus: Shuimeng Status Bar Brand Begin === */
     ofs += BLI_snprintf_utf8_rlen(
         info + ofs, len - ofs, IFACE_("%s Shuimeng个人定制版"), BKE_blender_version_string_compact());
+    /* === CyclesPlus: Shuimeng Status Bar Brand End === */
   }
 
   return info;

@@ -41,7 +41,11 @@ enum {
   PG_RGEN_EVAL_CURVE_SHADOW_TRANSPARENCY,
   PG_RGEN_INIT_FROM_CAMERA,
   PG_RGEN_EVAL_VOLUME_DENSITY,
+  /* === CyclesPlus: OptiX Photon Raygen Program Group Begin === */
+#ifdef WITH_CYCLES_SPPM_CAUSTICS
   PG_RGEN_PHOTON_TRACE, /* CyclesPlus */
+#endif  /* WITH_CYCLES_SPPM_CAUSTICS */
+  /* === CyclesPlus: OptiX Photon Raygen Program Group End === */
 
   /* Miss */
   PG_MISS,
@@ -87,6 +91,8 @@ static const int CALLABLE_PROGRAM_GROUPS_BASE = PG_CALL_SVM_AO;
 static const int NUM_CALLABLE_PROGRAM_GROUPS = 2;
 
 /* List of OptiX pipelines. */
+/* === CyclesPlus: OptiX Photon Pipeline Begin === */
+#ifdef WITH_CYCLES_SPPM_CAUSTICS
 /* CyclesPlus: the photon raygen gets its OWN pipeline. The OptiX spec
  * (optix_host.h, optixLaunch): "concurrent launches to the same pipeline
  * are not supported. Concurrent launches require separate OptixPipeline
@@ -98,6 +104,10 @@ static const int NUM_CALLABLE_PROGRAM_GROUPS = 2;
  * mitigation only narrowed the overlap window; separate pipelines remove
  * the shared object entirely. */
 enum { PIP_SHADE, PIP_INTERSECT, PIP_PHOTON, NUM_PIPELINES };
+#else
+enum { PIP_SHADE, PIP_INTERSECT, NUM_PIPELINES };
+#endif  /* WITH_CYCLES_SPPM_CAUSTICS */
+/* === CyclesPlus: OptiX Photon Pipeline End === */
 
 /* A single shader binding table entry. */
 struct SbtRecord {
@@ -127,6 +137,8 @@ class OptiXDevice : public CUDADevice {
 
   device_vector<SbtRecord> sbt_data;
   device_only_memory<KernelParamsOptiX> launch_params;
+  /* === CyclesPlus: OptiX Photon Launch Params Begin === */
+#ifdef WITH_CYCLES_SPPM_CAUSTICS
   /* CyclesPlus: private launch-params buffer for the photon raygen. The
    * shared `launch_params` is read by OptiX kernels WHILE THEY RUN, and the
    * photon queue launches concurrently with the render queue - staging into
@@ -138,6 +150,8 @@ class OptiXDevice : public CUDADevice {
    * stage their arguments here - the two launch streams can no longer touch
    * each other's parameters by construction. */
   device_only_memory<KernelParamsOptiX> photon_launch_params;
+#endif  /* WITH_CYCLES_SPPM_CAUSTICS */
+  /* === CyclesPlus: OptiX Photon Launch Params End === */
 
  private:
   OptixTraversableHandle tlas_handle = 0;

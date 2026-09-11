@@ -10,7 +10,11 @@
 #ifdef WITH_CUDA
 #  include "device/cuda/device_impl.h"
 
+/* === CyclesPlus: DLSS Device Include Begin === */
+#ifdef WITH_DLSS
 #  include "integrator/denoiser_dlss.h"
+#endif  /* WITH_DLSS */
+/* === CyclesPlus: DLSS Device Include End === */
 #  include "integrator/denoiser_oidn_gpu.h"  // IWYU pragma: keep
 
 #  include "util/string.h"
@@ -170,11 +174,13 @@ void device_cuda_info(vector<DeviceInfo> &devices)
                             (unsigned int)pci_location[1],
                             (unsigned int)pci_location[2]);
 
+    /* === CyclesPlus: DLSS Device Capability Begin === */
 #  if defined(WITH_DLSS)
     if (DLSSDenoiser::is_device_supported(info)) {
       info.denoisers |= DENOISER_DLSS;
     }
 #  endif
+    /* === CyclesPlus: DLSS Device Capability End === */
 
 #  if defined(WITH_OPENIMAGEDENOISE)
 #    if OIDN_VERSION >= 20300

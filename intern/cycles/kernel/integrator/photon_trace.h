@@ -2,6 +2,7 @@
  *
  * SPDX-License-Identifier: Apache-2.0 */
 
+/* === CyclesPlus: Personal Photon Trace Begin === */
 /* Photon caustics: device-portable photon tracing (one thread = one photon).
  *
  * Replaces the host-side tracer: photons walk the REAL scene BVH via
@@ -1108,3 +1109,4 @@ ccl_device float photon_trace_single(KernelGlobals kg,
 }
 
 CCL_NAMESPACE_END
+/* === CyclesPlus: Personal Photon Trace End === */

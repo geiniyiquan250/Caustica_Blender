@@ -30,7 +30,9 @@ namespace blender {
 
 /* Blender file format version. */
 #define BLENDER_FILE_VERSION BLENDER_VERSION
+/* === CyclesPlus: Glass Dispersion Blend File Version Begin === */
 #define BLENDER_FILE_SUBVERSION 45
+/* === CyclesPlus: Glass Dispersion Blend File Version End === */
 
 /* Minimum Blender version that supports reading file written with the current
  * version. Older Blender versions will test this and cancel loading the file, showing a warning to

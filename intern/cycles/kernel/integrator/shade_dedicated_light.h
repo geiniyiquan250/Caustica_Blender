@@ -11,7 +11,11 @@
 
 #include "kernel/integrator/shade_surface.h"
 
+/* === CyclesPlus: Photon Dedicated Light Integration Include Begin === */
+#ifdef WITH_CYCLES_SPPM_CAUSTICS
 #include "kernel/svm/photon_caustics.h"
+#endif  /* WITH_CYCLES_SPPM_CAUSTICS */
+/* === CyclesPlus: Photon Dedicated Light Integration Include End === */
 
 CCL_NAMESPACE_BEGIN
 
@@ -96,12 +100,17 @@ ccl_device bool shadow_linking_shade_light(KernelGlobals kg,
 
   const ccl_global KernelLight *klight = &kernel_data_fetch(lights, isect.prim);
 
+  /* === CyclesPlus: Photon Dedicated Light Path Ownership Begin === */
+  bool photon_path_owned = false;
+#ifdef WITH_CYCLES_SPPM_CAUSTICS
   /* CyclesPlus: the photon map already carries this light along this chain. */
-  if (photon_caustic_path_owned(kg, path_flag) ||
-      !is_light_shader_visible_to_path(klight->shader_id, path_visibility, path_flag))
-  {
+  photon_path_owned = photon_caustic_path_owned(kg, path_flag);
+#endif  /* WITH_CYCLES_SPPM_CAUSTICS */
+  if (photon_path_owned ||
+      !is_light_shader_visible_to_path(klight->shader_id, path_visibility, path_flag)) {
     return false;
   }
+  /* === CyclesPlus: Photon Dedicated Light Path Ownership End === */
 
   /* MIS weighting. */
   mis_weight = shadow_linking_light_sample_mis_weight(

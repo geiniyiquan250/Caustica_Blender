@@ -124,7 +124,9 @@ KERNEL_STRUCT_MEMBER(film, int, pass_cryptomatte)
 /* Adaptive sampling. */
 KERNEL_STRUCT_MEMBER(film, int, pass_adaptive_aux_buffer)
 KERNEL_STRUCT_MEMBER(film, int, pass_sample_count)
-/* Photon caustics SPPM statistics (CyclesPlus). */
+
+/* === CyclesPlus: Photon Caustics Passes Begin === */
+#ifdef WITH_CYCLES_SPPM_CAUSTICS
 /* User-visible caustics pass (CyclesPlus): receives the same delta the
  * combined pass gets, so it holds exactly the caustic share of the image. */
 KERNEL_STRUCT_MEMBER(film, int, pass_caustics)
@@ -139,6 +141,8 @@ KERNEL_STRUCT_MEMBER(film, int, pass_photon_state)
 KERNEL_STRUCT_MEMBER(film, int, pass_caustics_lightgroup)
 KERNEL_STRUCT_MEMBER(film, int, pass_photon_tau_group)
 KERNEL_STRUCT_MEMBER(film, int, num_caustics_lightgroups)
+#endif  /* WITH_CYCLES_SPPM_CAUSTICS */
+/* === CyclesPlus: Photon Caustics Passes End === */
 /* Mist. */
 KERNEL_STRUCT_MEMBER(film, int, pass_mist)
 KERNEL_STRUCT_MEMBER(film, float, mist_start)
@@ -211,7 +215,10 @@ KERNEL_STRUCT_MEMBER(integrator, int, caustics_reflective)
 KERNEL_STRUCT_MEMBER(integrator, int, caustics_refractive)
 KERNEL_STRUCT_MEMBER(integrator, float, filter_glossy)
 KERNEL_STRUCT_MEMBER(integrator, float, differential_widen_scale)
-/* Photon caustics (CyclesPlus). Grid parameters update per progressive
+
+/* === CyclesPlus: Photon Caustics Integrator Fields Begin === */
+#ifdef WITH_CYCLES_SPPM_CAUSTICS
+/* Grid parameters update per progressive
  * batch; the arrays live in data_arrays.h. photon_radius is the constant
  * cell size and the per-pixel SPPM start radius; the per-pixel radii live
  * in the PASS_PHOTON_* film passes and only ever shrink below it. */
@@ -264,6 +271,8 @@ KERNEL_STRUCT_MEMBER(integrator, int, photon_heuristic_mask)
  * or the radius statistics - and a change takes effect on the next gather
  * (the film delta write corrects itself against the last written value). */
 KERNEL_STRUCT_MEMBER(integrator, float, photon_intensity)
+#endif  /* WITH_CYCLES_SPPM_CAUSTICS */
+/* === CyclesPlus: Photon Caustics Integrator Fields End === */
 /* Seed. */
 KERNEL_STRUCT_MEMBER_DONT_SPECIALIZE
 KERNEL_STRUCT_MEMBER(integrator, int, seed)

@@ -2,6 +2,7 @@
  *
  * SPDX-License-Identifier: Apache-2.0 */
 
+/* === CyclesPlus: Personal Photon Trace Types Begin === */
 /* Photon caustics: PODs shared between the host batch scheduler
  * (integrator/photon_map.cpp) and the device photon tracing kernel
  * (kernel/integrator/photon_trace.h). Host-safe: no kernel includes. */
@@ -135,3 +136,4 @@ ccl_device_inline uint64_t photon_trace_batch_seed(const uint64_t k)
 }
 
 CCL_NAMESPACE_END
+/* === CyclesPlus: Personal Photon Trace Types End === */

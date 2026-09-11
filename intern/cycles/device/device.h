@@ -96,7 +96,9 @@ class DeviceInfo {
   /* Indicate that device execution has been optimized by Blender or vendor developers.
    * For LTS versions, this helps communicate that newer versions may have better performance. */
   bool has_execution_optimization = true;
+  /* === CyclesPlus: DLSS Driver Requirement Flag Begin === */
   bool meets_driver_requirement = true;
+  /* === CyclesPlus: DLSS Driver Requirement Flag End === */
 
   KernelOptimizationLevel kernel_optimization_level =
       KERNEL_OPTIMIZATION_LEVEL_FULL;         /* Optimization level applied to path tracing

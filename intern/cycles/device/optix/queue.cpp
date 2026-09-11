@@ -6,7 +6,11 @@
 
 #  include "device/optix/queue.h"
 #  include "device/optix/device_impl.h"
+/* === CyclesPlus: OptiX Caustics Profiler Include Begin === */
+#ifdef WITH_CYCLES_SPPM_CAUSTICS
 #  include "util/caustics_profiler.h"
+#endif  /* WITH_CYCLES_SPPM_CAUSTICS */
+/* === CyclesPlus: OptiX Caustics Profiler Include End === */
 
 #  define __KERNEL_OPTIX__
 #  include "kernel/device/optix/globals.h"
@@ -68,6 +72,8 @@ bool OptiXDeviceQueue::enqueue(DeviceKernel kernel,
   const CUDAContextScope scope(cuda_device_);
 
   const device_ptr sbt_data_ptr = optix_device->sbt_data.device_pointer;
+  /* === CyclesPlus: OptiX Photon Launch Params Selection Begin === */
+#ifdef WITH_CYCLES_SPPM_CAUSTICS
   /* CyclesPlus: the photon raygen stages into and launches from a PRIVATE
    * params buffer. OptiX kernels read their params from device memory while
    * they run, and the photon queue launches concurrently with the render
@@ -82,6 +88,10 @@ bool OptiXDeviceQueue::enqueue(DeviceKernel kernel,
   const device_ptr launch_params_ptr = photon_kernel ?
                                            optix_device->photon_launch_params.device_pointer :
                                            optix_device->launch_params.device_pointer;
+#else
+  const device_ptr launch_params_ptr = optix_device->launch_params.device_pointer;
+#endif  /* WITH_CYCLES_SPPM_CAUSTICS */
+  /* === CyclesPlus: OptiX Photon Launch Params Selection End === */
 
   auto set_launch_param = [&](size_t offset, size_t size, int arg) {
     cuda_device_assert(
@@ -89,6 +99,8 @@ bool OptiXDeviceQueue::enqueue(DeviceKernel kernel,
         cuMemcpyHtoDAsync(launch_params_ptr + offset, args.values[arg], size, cuda_stream_));
   };
 
+#ifdef WITH_CYCLES_SPPM_CAUSTICS
+    /* === CyclesPlus: OptiX Photon Params Snapshot Begin === */
   if (photon_kernel) {
     /* Order the snapshot after any in-flight null-stream write to the
      * shared buffer (const_copy_to("data") uses a null-stream HtoD): this
@@ -104,7 +116,10 @@ bool OptiXDeviceQueue::enqueue(DeviceKernel kernel,
                                          sizeof(KernelParamsOptiX),
                                          cuda_stream_));
   }
-  else {
+  /* === CyclesPlus: OptiX Photon Params Snapshot End === */
+  else
+#endif  /* WITH_CYCLES_SPPM_CAUSTICS */
+  {
     set_launch_param(offsetof(KernelParamsOptiX, path_index_array), sizeof(device_ptr), 0);
   }
 
@@ -126,6 +141,8 @@ bool OptiXDeviceQueue::enqueue(DeviceKernel kernel,
     set_launch_param(offsetof(KernelParamsOptiX, max_tile_work_size), sizeof(int32_t), 3);
   }
 
+#ifdef WITH_CYCLES_SPPM_CAUSTICS
+  /* === CyclesPlus: OptiX Photon Launch Arguments Begin === */
   if (kernel == DEVICE_KERNEL_PHOTON_TRACE) {
       /* CyclesPlus: argument order matches the host DeviceKernelArguments in
        * integrator/photon_map.cpp (trace_batch_gpu). */
@@ -147,10 +164,16 @@ bool OptiXDeviceQueue::enqueue(DeviceKernel kernel,
       /* Index 15 (work_size) comes from the launch dimension. */
       set_launch_param(offsetof(KernelParamsOptiX, photon_target_yield), sizeof(device_ptr), 16);
   }
+  /* === CyclesPlus: OptiX Photon Launch Arguments End === */
+#endif  /* WITH_CYCLES_SPPM_CAUSTICS */
 
+#ifdef WITH_CYCLES_SPPM_CAUSTICS
+  /* === CyclesPlus: OptiX Launch Params Profile Begin === */
   PhotonProfileScope params_wait("optix.launch_params_wait", this, kernel);
   cuda_device_assert(cuda_device_, cuStreamSynchronize(cuda_stream_));
   params_wait.finish();
+  /* === CyclesPlus: OptiX Launch Params Profile End === */
+#endif  /* WITH_CYCLES_SPPM_CAUSTICS */
 
   OptixPipeline pipeline = nullptr;
   OptixShaderBindingTable sbt_params = {};
@@ -220,12 +243,16 @@ bool OptiXDeviceQueue::enqueue(DeviceKernel kernel,
                                 PG_RGEN_INTERSECT_DEDICATED_LIGHT * sizeof(SbtRecord);
       break;
 
+    /* === CyclesPlus: OptiX Photon Pipeline Dispatch Begin === */
+#ifdef WITH_CYCLES_SPPM_CAUSTICS
     case DEVICE_KERNEL_PHOTON_TRACE: /* CyclesPlus */
       /* Own pipeline object: concurrent launches to the same pipeline are
        * documented as unsupported (see PIP_PHOTON in device_impl.h). */
       pipeline = optix_device->pipelines[PIP_PHOTON];
       sbt_params.raygenRecord = sbt_data_ptr + PG_RGEN_PHOTON_TRACE * sizeof(SbtRecord);
       break;
+#endif  /* WITH_CYCLES_SPPM_CAUSTICS */
+    /* === CyclesPlus: OptiX Photon Pipeline Dispatch End === */
 
     case DEVICE_KERNEL_SHADER_EVAL_DISPLACE:
       pipeline = optix_device->pipelines[PIP_SHADE];
@@ -273,7 +300,10 @@ bool OptiXDeviceQueue::enqueue(DeviceKernel kernel,
 #  endif
 
   /* Launch the ray generation program. */
+  /* === CyclesPlus: OptiX Caustics Profile Launch Begin === */
+#ifdef WITH_CYCLES_SPPM_CAUSTICS
   caustics_profile_begin(kernel, work_size);
+#endif  /* WITH_CYCLES_SPPM_CAUSTICS */
   optix_device_assert(optix_device,
                       optixLaunch(pipeline,
                                   cuda_stream_,
@@ -284,7 +314,10 @@ bool OptiXDeviceQueue::enqueue(DeviceKernel kernel,
                                   1,
                                   1));
 
+#ifdef WITH_CYCLES_SPPM_CAUSTICS
   caustics_profile_end();
+#endif  /* WITH_CYCLES_SPPM_CAUSTICS */
+  /* === CyclesPlus: OptiX Caustics Profile Launch End === */
 
   debug_enqueue_end();
 

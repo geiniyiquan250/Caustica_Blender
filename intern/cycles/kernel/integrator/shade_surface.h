@@ -26,7 +26,11 @@
 #include "kernel/types.h"
 #include "util/math_intersect.h"
 
+/* === CyclesPlus: Photon Caustics Includes Begin === */
+#ifdef WITH_CYCLES_SPPM_CAUSTICS
 #include "kernel/svm/photon_caustics.h"
+#endif
+/* === CyclesPlus: Photon Caustics Includes End === */
 
 CCL_NAMESPACE_BEGIN
 
@@ -132,10 +136,14 @@ ccl_device_forceinline void integrate_surface_emission(KernelGlobals kg,
   const PathRayVisibility path_visibility = INTEGRATOR_STATE(state, path, visibility);
   const uint32_t path_flag = INTEGRATOR_STATE(state, path, flag);
 
+  /* === CyclesPlus: Photon Caustics Chain Check Begin === */
+#ifdef WITH_CYCLES_SPPM_CAUSTICS
   /* CyclesPlus: the photon map already carries this emitter along this chain. */
   if (photon_caustic_path_owned(kg, path_flag)) {
     return;
   }
+#endif  /* WITH_CYCLES_SPPM_CAUSTICS */
+  /* === CyclesPlus: Photon Caustics Chain Check End === */
 
 #ifdef __LIGHT_LINKING__
   if (!(path_visibility & PATH_RAY_VISIBILITY_CAMERA) &&
@@ -339,6 +347,8 @@ ccl_device
     return SHADER_EVAL_EMPTY;
   }
 
+  /* === CyclesPlus: Photon Partition PT Begin === */
+#ifdef WITH_CYCLES_SPPM_CAUSTICS
   /* CyclesPlus: a rough caster - frosted glass, brushed metal - collects its
    * light here rather than by running into the lamp, because a rough closure
    * still samples lights directly. Seen from the pixel's photon measurement
@@ -353,6 +363,8 @@ ccl_device
   {
     return SHADER_EVAL_EMPTY;
   }
+#endif  /* WITH_CYCLES_SPPM_CAUSTICS */
+  /* === CyclesPlus: Photon Partition PT End === */
 
   LightSample ls ccl_optional_struct_init;
   int mnee_vertex_count = 0;  // NOLINT
@@ -649,6 +661,8 @@ ccl_device_forceinline int integrate_surface_bsdf_bssrdf_bounce(
 
   path_state_next(kg, state, label, sd->flag);
 
+  /* === CyclesPlus: Photon Caustic Chain Tracking Begin === */
+#ifdef WITH_CYCLES_SPPM_CAUSTICS
   /* CyclesPlus: follow the specular chain the photon map already carries.
    *
    * It may only start at the pixel's photon measurement point, because that is
@@ -675,6 +689,8 @@ ccl_device_forceinline int integrate_surface_bsdf_bssrdf_bounce(
     }
     INTEGRATOR_STATE_WRITE(state, path, flag) = photon_flag;
   }
+#endif  /* WITH_CYCLES_SPPM_CAUSTICS */
+  /* === CyclesPlus: Photon Caustic Chain Tracking End === */
 
   guiding_record_surface_bounce(kg,
                                 state,
@@ -910,6 +926,8 @@ ccl_device int integrate_surface(KernelGlobals kg,
       guiding_write_debug_passes(kg, state, &sd, render_buffer);
     }
 #endif
+    /* === CyclesPlus: Photon Hitpoint Writer Begin === */
+#ifdef WITH_CYCLES_SPPM_CAUSTICS
     /* Photon caustics (SPPM): record the measurement point at the first
      * qualifying diffuse hit. The photon gather and the statistics update
      * run in the film photon gather kernel, once per published photon
@@ -943,7 +961,9 @@ ccl_device int integrate_surface(KernelGlobals kg,
          * measurably wrong for the whole SSS surface. */
         film_write_photon_hitpoint(kg, state, sd.P, sd.Ng, weight, render_buffer);
       }
-    }
+      }
+#endif  /* WITH_CYCLES_SPPM_CAUSTICS */
+    /* === CyclesPlus: Photon Hitpoint Writer End === */
 
     /* Direct light. */
     PROFILING_EVENT(PROFILING_SHADE_SURFACE_DIRECT_LIGHT);

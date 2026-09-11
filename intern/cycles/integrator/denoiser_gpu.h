@@ -47,22 +47,28 @@ class DenoiserGPU : public Denoiser {
 
   /* Run corresponding filter kernels, preparing data for the denoiser or copying data from the
    * denoiser result to the render buffer. */
+  /* === CyclesPlus: DLSS GPU Overrides Begin === */
   virtual bool denoise_filter_color_preprocess(const DenoiseContext &context,
                                                const DenoisePass &pass);
   virtual bool denoise_filter_color_postprocess(const DenoiseContext &context,
                                                 const DenoisePass &pass);
+  /* === CyclesPlus: DLSS GPU Overrides End === */
   bool denoise_filter_color_flip_y(const DenoiseContext &context,
                                    const BufferParams &buffer_params,
                                    const DenoisePass &pass);
   bool denoise_filter_guiding_flip_y(const DenoiseContext &context);
+  /* === CyclesPlus: DLSS Guiding Buffer Access Begin === */
   bool denoise_filter_guiding_set_fake_albedo(DenoiseContext &context);
+  /* === CyclesPlus: DLSS Guiding Buffer Access End === */
 
   /* Read guiding passes from the render buffers, preprocess them in a way which is expected by
    * the GPU denoiser and store in the guiding passes memory within the given context.
    *
    * Pre-processing of the guiding passes is to only happen once per context lifetime. DO not
    * preprocess them for every pass which is being denoised. */
+  /* === CyclesPlus: DLSS Guiding Override Begin === */
   virtual bool denoise_filter_guiding_preprocess(DenoiseContext &context);
+  /* === CyclesPlus: DLSS Guiding Override End === */
 
   bool denoise_pass(DenoiseContext &context, PassType pass_type);
 

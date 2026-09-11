@@ -8,7 +8,11 @@
 
 #include "kernel/sample/pattern.h"
 
+/* === CyclesPlus: Glass Dispersion Color Include Begin === */
+#ifdef WITH_CYCLES_SPPM_CAUSTICS
 #include "kernel/util/colorspace.h"
+#endif  /* WITH_CYCLES_SPPM_CAUSTICS */
+/* === CyclesPlus: Glass Dispersion Color Include End === */
 
 CCL_NAMESPACE_BEGIN
 
@@ -151,9 +155,13 @@ ccl_device_inline void path_state_next(KernelGlobals kg,
   flag &= ~(PATH_RAY_REFLECT | PATH_RAY_SINGULAR | PATH_RAY_TRANSPARENT |
             PATH_RAY_IMPORTANCE_BAKE | PATH_RAY_MIS_SKIP | PATH_RAY_MIS_HAD_TRANSMISSION);
 
+  /* === CyclesPlus: Photon Camera Path Marker Begin === */
+#ifdef WITH_CYCLES_SPPM_CAUSTICS
   if (label & (LABEL_DIFFUSE | LABEL_VOLUME_SCATTER)) {
     flag &= ~PATH_RAY_PHOTON_CAMERA_PATH;
   }
+#endif  /* WITH_CYCLES_SPPM_CAUSTICS */
+  /* === CyclesPlus: Photon Camera Path Marker End === */
 
 #ifdef __VOLUME__
   if (label & LABEL_VOLUME_SCATTER) {
@@ -434,7 +442,8 @@ ccl_device_inline float path_state_rng_light_termination(KernelGlobals kg,
   return 0.0f;
 }
 
-#ifdef __SPECTRAL__
+/* === CyclesPlus: Glass Dispersion Throughput Helpers Begin === */
+#if defined(WITH_CYCLES_SPPM_CAUSTICS) && defined(__SPECTRAL__)
 ccl_device_inline Spectrum dispersion_throughput_weight(KernelGlobals kg, const float rand)
 {
   float prob;
@@ -456,6 +465,7 @@ ccl_device_inline void update_path_throughput_for_dispersion(KernelGlobals kg,
   INTEGRATOR_STATE_WRITE(state, path, throughput) *= dispersion_throughput_weight(kg, rand);
   INTEGRATOR_STATE_WRITE(state, path, flag) |= PATH_RAY_SPECTRAL;
 }
-#endif
+#endif  /* WITH_CYCLES_SPPM_CAUSTICS && __SPECTRAL__ */
+/* === CyclesPlus: Glass Dispersion Throughput Helpers End === */
 
 CCL_NAMESPACE_END

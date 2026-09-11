@@ -54,6 +54,10 @@ function(cuda_add_common_flags cuda_version arch in_flags out_flags)
     set(flags ${flags} -D WITH_NANOVDB)
   endif()
 
+  if(WITH_CYCLES_SPPM_CAUSTICS)
+    set(flags ${flags} -D WITH_CYCLES_SPPM_CAUSTICS)
+  endif()
+
   if("${cuda_version}" GREATER_EQUAL 123 AND "${arch}" STREQUAL "sm_120")
     # Enable jump table generation for the SVM switch statement.
     set(flags ${flags} --jump-table-density 80)
@@ -71,6 +75,7 @@ function(cuda_add_common_flags cuda_version arch in_flags out_flags)
   set(${out_flags} ${flags} PARENT_SCOPE)
 endfunction()
 
+# === CyclesPlus: CUDA OptiX Binary Sharing Begin ===
 # OptiX also dispatches shader evaluation and film kernels through CUDA.
 if(WITH_CYCLES_CUDA_BINARIES AND (WITH_CYCLES_DEVICE_CUDA OR WITH_CYCLES_DEVICE_OPTIX))
   # 64 bit only
@@ -159,7 +164,8 @@ if(WITH_CYCLES_CUDA_BINARIES AND (WITH_CYCLES_DEVICE_CUDA OR WITH_CYCLES_DEVICE_
     delayed_install("${CMAKE_CURRENT_BINARY_DIR}" "${cuda_file_compressed}" ${CYCLES_INSTALL_PATH}/lib)
     list(APPEND cuda_cubins ${cuda_file_compressed})
     set(cuda_cubins "${cuda_cubins}" PARENT_SCOPE)
-  endfunction()
+endfunction()
+# === CyclesPlus: CUDA OptiX Binary Sharing End ===
 
   set(prev_arch "none")
   foreach(arch ${CYCLES_CUDA_BINARIES_ARCH})

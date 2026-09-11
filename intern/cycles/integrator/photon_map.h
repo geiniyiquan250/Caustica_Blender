@@ -2,6 +2,7 @@
  *
  * SPDX-License-Identifier: Apache-2.0 */
 
+/* === CyclesPlus: Personal Photon Map Header Begin === */
 /* Photon caustics: host-side progressive photon map.
  *
  * Stochastic progressive photon mapping (SPPM): every render progression gets
@@ -125,3 +126,4 @@ class PhotonMap {
 };
 
 CCL_NAMESPACE_END
+/* === CyclesPlus: Personal Photon Map Header End === */

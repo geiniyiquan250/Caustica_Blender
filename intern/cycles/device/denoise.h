@@ -11,7 +11,11 @@ CCL_NAMESPACE_BEGIN
 enum DenoiserType {
   DENOISER_OPTIX = 2,
   DENOISER_OPENIMAGEDENOISE = 4,
+  /* === CyclesPlus: DLSS Denoiser Type Begin === */
+#ifdef WITH_DLSS
   DENOISER_DLSS = 8,
+#endif  /* WITH_DLSS */
+  /* === CyclesPlus: DLSS Denoiser Type End === */
   DENOISER_NUM,
 
   DENOISER_NONE = 0,
@@ -32,7 +36,11 @@ enum DenoiserPass {
   DENOISER_PASS_DEPTH = 1 << 4,
   DENOISER_PASS_MOTION = 1 << 5,
   DENOISER_PASS_BACKWARD_MOTION = 1 << 6,
+  /* === CyclesPlus: DLSS Specular Motion Pass Begin === */
+#ifdef WITH_DLSS
   DENOISER_PASS_SPECULAR_MOTION = 1 << 7,
+#endif  /* WITH_DLSS */
+  /* === CyclesPlus: DLSS Specular Motion Pass End === */
 };
 
 using DenoiserPassMask = int;

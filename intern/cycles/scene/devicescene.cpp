@@ -53,6 +53,8 @@ DeviceScene::DeviceScene(Device *device)
       lookup_table(device, "lookup_table", MEM_GLOBAL),
       sample_pattern_lut(device, "sample_pattern_lut", MEM_GLOBAL),
       ies_lights(device, "ies", MEM_GLOBAL),
+      /* === CyclesPlus: Photon Device Arrays Initialization Begin === */
+#ifdef WITH_CYCLES_SPPM_CAUSTICS
       photon_pos(device, "photon_pos", MEM_GLOBAL),
       photon_beam_start(device, "photon_beam_start", MEM_GLOBAL),
       photon_flux(device, "photon_flux", MEM_GLOBAL),
@@ -64,6 +66,8 @@ DeviceScene::DeviceScene(Device *device)
       photon_volume_beam_flux(device, "photon_volume_beam_flux", MEM_GLOBAL),
       photon_volume_beam_sigma(device, "photon_volume_beam_sigma", MEM_GLOBAL),
       photon_volume_beam_nodes(device, "photon_volume_beam_nodes", MEM_GLOBAL),
+#endif  /* WITH_CYCLES_SPPM_CAUSTICS */
+      /* === CyclesPlus: Photon Device Arrays Initialization End === */
       volume_tree_nodes(device, "volume_tree_nodes", MEM_GLOBAL),
       volume_tree_roots(device, "volume_tree_roots", MEM_GLOBAL),
       volume_tree_root_ids(device, "volume_tree_root_ids", MEM_GLOBAL),

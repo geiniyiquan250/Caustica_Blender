@@ -68,7 +68,11 @@ void BlenderSync::sync_light(BObjectInfo &b_ob_info, Light *light)
 
   /* caustics light */
   light->set_use_caustics(get_boolean(clight, "is_caustics_light"));
+  /* === CyclesPlus: Photon Light Cast Sync Begin === */
+#ifdef WITH_CYCLES_SPPM_CAUSTICS
   light->set_photon_cast(get_boolean(clight, "photon_cast"));
+#endif  /* WITH_CYCLES_SPPM_CAUSTICS */
+  /* === CyclesPlus: Photon Light Cast Sync End === */
 
   light->set_max_bounces(get_int(clight, "max_bounces"));
 
@@ -139,7 +143,11 @@ void BlenderSync::sync_background_light(blender::bScreen *b_screen, blender::Vie
 
       /* Caustic light. */
       light->set_use_caustics(get_boolean(cworld, "is_caustics_light"));
+      /* === CyclesPlus: Photon World Cast Sync Begin === */
+#ifdef WITH_CYCLES_SPPM_CAUSTICS
       light->set_photon_cast(get_boolean(cworld, "photon_cast"));
+#endif  /* WITH_CYCLES_SPPM_CAUSTICS */
+      /* === CyclesPlus: Photon World Cast Sync End === */
 
       light->set_cast_shadow(get_boolean(cworld, "use_shadows"));
 

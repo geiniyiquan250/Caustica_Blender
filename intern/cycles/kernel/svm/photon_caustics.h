@@ -2,6 +2,7 @@
  *
  * SPDX-License-Identifier: Apache-2.0 */
 
+/* === CyclesPlus: Personal Photon SVM Helpers Begin === */
 #pragma once
 
 /* CyclesPlus: the photon map ADDS to Cycles' caustics, it does not replace
@@ -119,3 +120,4 @@ ccl_device_inline bool photon_caustic_path_owned(KernelGlobals kg, const uint32_
 }
 
 CCL_NAMESPACE_END
+/* === CyclesPlus: Personal Photon SVM Helpers End === */

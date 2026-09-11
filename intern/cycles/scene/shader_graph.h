@@ -185,10 +185,14 @@ class ShaderNode : public Node {
   {
     return false;
   }
+  /* === CyclesPlus: Glass Dispersion Node Query Begin === */
+#ifdef WITH_CYCLES_SPPM_CAUSTICS
   virtual bool has_dispersion()
   {
     return false;
   }
+#endif  /* WITH_CYCLES_SPPM_CAUSTICS */
+  /* === CyclesPlus: Glass Dispersion Node Query End === */
   virtual bool has_bump()
   {
     return false;

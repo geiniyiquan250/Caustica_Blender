@@ -12,7 +12,9 @@ set(INC_SYS
 set(SRC
   adaptive_sampling.cpp
   denoiser.cpp
+  # === CyclesPlus: DLSS Source Begin ===
   denoiser_dlss.cpp
+  # === CyclesPlus: DLSS Source End ===
   denoiser_gpu.cpp
   denoiser_oidn.cpp
   denoiser_oidn_base.cpp
@@ -28,7 +30,9 @@ set(SRC
   path_trace_work.cpp
   path_trace_work_cpu.cpp
   path_trace_work_gpu.cpp
+  # === CyclesPlus: Photon Source Begin ===
   photon_map.cpp
+  # === CyclesPlus: Photon Source End ===
   render_scheduler.cpp
   shader_eval.cpp
   work_balancer.cpp
@@ -38,7 +42,9 @@ set(SRC
 set(SRC_HEADERS
   adaptive_sampling.h
   denoiser.h
+  # === CyclesPlus: DLSS Header Begin ===
   denoiser_dlss.h
+  # === CyclesPlus: DLSS Header End ===
   denoiser_gpu.h
   denoiser_oidn.h
   denoiser_oidn_base.h
@@ -55,7 +61,9 @@ set(SRC_HEADERS
   path_trace_work.h
   path_trace_work_cpu.h
   path_trace_work_gpu.h
+  # === CyclesPlus: Photon Header Begin ===
   photon_map.h
+  # === CyclesPlus: Photon Header End ===
   render_scheduler.h
   shader_eval.h
   work_balancer.h
@@ -74,11 +82,13 @@ set(LIB
   PRIVATE bf::dependencies::optional::openpgl
 )
 
+# === CyclesPlus: DLSS Include Path Begin ===
 if(WITH_DLSS)
   list(APPEND INC_SYS
     ${DLSS_INCLUDE_DIR}
   )
 endif()
+# === CyclesPlus: DLSS Include Path End ===
 
 include_directories(${INC})
 include_directories(SYSTEM ${INC_SYS})

@@ -23,8 +23,12 @@
 
 #include "BLI_listbase.h"
 
+/* === CyclesPlus: Photon Packed Texture Includes Begin === */
+#ifdef WITH_CYCLES_SPPM_CAUSTICS
 #include "IMB_imbuf_types.hh"
 #include "BKE_image.hh"
+#endif  /* WITH_CYCLES_SPPM_CAUSTICS */
+/* === CyclesPlus: Photon Packed Texture Includes End === */
 
 #include "BKE_duplilist.hh"
 #include "BKE_node.hh"
@@ -42,6 +46,8 @@
 
 CCL_NAMESPACE_BEGIN
 
+/* === CyclesPlus: Photon Packed Texture Mean Function Begin === */
+#ifdef WITH_CYCLES_SPPM_CAUSTICS
 /* CyclesPlus: average value of an image texture, sampled at sync time.
  *
  * The photon material classifier decides from a metallic or transmission map
@@ -113,6 +119,8 @@ static float photon_image_texture_mean(blender::Image *b_image,
   }
   return mean;
 }
+#endif  /* WITH_CYCLES_SPPM_CAUSTICS */
+/* === CyclesPlus: Photon Packed Texture Mean Function End === */
 
 using PtrInputMap = unordered_multimap<void *, ShaderInput *>;
 using PtrOutputMap = map<void *, ShaderOutput *>;
@@ -993,9 +1001,13 @@ static ShaderNode *add_node(Scene *scene,
        * build must not touch a buffer Blender would not have touched, and
        * acquiring every image at sync time is exactly that. sync_integrator
        * runs before sync_shaders, so the flag is already current here. */
+      /* === CyclesPlus: Photon Packed Texture Mean Sync Begin === */
+#ifdef WITH_CYCLES_SPPM_CAUSTICS
       if (scene->integrator->get_use_photon_caustics()) {
         image->photon_texture_mean = photon_image_texture_mean(b_image, &b_image_user);
       }
+#endif  /* WITH_CYCLES_SPPM_CAUSTICS */
+      /* === CyclesPlus: Photon Packed Texture Mean Sync End === */
 
       if (b_image_source == blender::IMA_SRC_TILED) {
         array<int> tiles;
@@ -1796,7 +1808,11 @@ void BlenderSync::sync_materials(blender::Depsgraph &b_depsgraph,
       shader->set_emission_sampling_method(get_emission_sampling(cmat));
       shader->set_use_transparent_shadow(b_mat.blend_flag & blender::MA_BL_TRANSPARENT_SHADOW);
       shader->set_use_bump_map_correction(get_boolean(cmat, "use_bump_map_correction"));
+      /* === CyclesPlus: Photon Material Cast Sync Begin === */
+#ifdef WITH_CYCLES_SPPM_CAUSTICS
       shader->set_photon_cast(get_boolean(cmat, "photon_cast"));
+#endif  /* WITH_CYCLES_SPPM_CAUSTICS */
+      /* === CyclesPlus: Photon Material Cast Sync End === */
       shader->set_volume_sampling_method(get_volume_sampling(cmat));
       shader->set_volume_interpolation_method(get_volume_interpolation(cmat));
       shader->set_volume_step_rate(get_float(cmat, "volume_step_rate"));

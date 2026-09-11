@@ -260,6 +260,8 @@ ccl_device_forceinline float3 microfacet_ggx_sample_vndf(const float3 wi,
   return normalize(make_float3(alpha_x * H_.x, alpha_y * H_.y, max(0.0f, H_.z)));
 }
 
+/* === CyclesPlus: Glass Dispersion IOR Begin === */
+#ifdef WITH_CYCLES_SPPM_CAUSTICS
 /* Calculate ior of potentially dispersive materials, using Cauchy empirical formula. Input ior is
  * the ior at the Fraunhofer d spectral line, after applying backface flipping. */
 ccl_device_inline float bsdf_glass_ior(ccl_private ShaderData *sd, float ior, const float inv_abbe)
@@ -297,6 +299,8 @@ ccl_device_inline float bsdf_glass_ior(ccl_private ShaderData *sd, float ior, co
   return ior;
 #endif
 }
+#endif  /* WITH_CYCLES_SPPM_CAUSTICS */
+/* === CyclesPlus: Glass Dispersion IOR End === */
 
 /* Computes Fresnel reflectance and transmittance of the Generalized Schlick Model. */
 ccl_device_forceinline void generalized_schlick_fresnel(

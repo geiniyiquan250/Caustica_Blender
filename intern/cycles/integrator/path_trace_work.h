@@ -132,6 +132,8 @@ class PathTraceWork {
   /* Denoise Volume Scattering Probability Guiding buffers. */
   virtual void denoise_volume_guiding_buffers() = 0;
 
+  /* === CyclesPlus: Photon Work Interface Begin === */
+#ifdef WITH_CYCLES_SPPM_CAUSTICS
   /* Photon caustics (CyclesPlus): run one SPPM gather over all pixels of
    * this work's buffer. Called after every render work: `consume` != 0
    * folds the current photon generation into the per-pixel statistics
@@ -140,6 +142,8 @@ class PathTraceWork {
    * `num_samples` is the fallback sample count for the delta write when
    * there is no per-pixel sample count pass. */
   virtual void photon_gather(const int num_samples, const int consume) = 0;
+#endif  /* WITH_CYCLES_SPPM_CAUSTICS */
+  /* === CyclesPlus: Photon Work Interface End === */
 
   /* Run cryptomatte pass post-processing kernels. */
   virtual void cryptomatte_postproces() = 0;

@@ -35,9 +35,11 @@ ccl_inline_constant float blackbody_table_b[][4] = {
  {-3.61460868e-11f, 2.84822009e-07f, -4.93211319e-04f, 1.56723440e-01f},
  {-1.97075738e-11f, 1.75359352e-07f, -2.50542825e-04f, -2.22783266e-02f},
  {-1.61997957e-13f, -1.64216008e-08f, 3.86216271e-04f, -7.38077418e-01f},
- {6.72650283e-13f, -2.73078809e-08f, 4.24098264e-04f, -7.52335691e-01f}
+  {6.72650283e-13f, -2.73078809e-08f, 4.24098264e-04f, -7.52335691e-01f}
 };
 
+/* === CyclesPlus: Glass Dispersion Spectrum Tables Begin === */
+#ifdef WITH_CYCLES_SPPM_CAUSTICS
 /* CIE1931 visible wavelength range in um. */
 #define WAVELENGTH_CIE_MIN 0.38f
 #define WAVELENGTH_CIE_MAX 0.78f
@@ -98,6 +100,8 @@ ccl_inline_constant float cie_d65_spd[] = {
     70.6652f, 71.6091f, 72.979f,  74.349f,  67.9765f, 61.604f,  65.7448f, 69.8856f, 72.4863f,
     75.087f,  69.3398f, 63.5927f, 55.0054f, 46.4182f, 56.6118f, 66.8054f, 65.0941f, 63.3828f,
 };
+#endif  /* WITH_CYCLES_SPPM_CAUSTICS */
+/* === CyclesPlus: Glass Dispersion Spectrum Tables End === */
 
 /*
  * The direction vectors for the first four dimensions of the Sobol

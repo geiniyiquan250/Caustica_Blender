@@ -37,9 +37,13 @@ class Light : public Geometry {
   NODE_SOCKET_API(bool, cast_shadow)
   NODE_SOCKET_API(bool, use_mis)
   NODE_SOCKET_API(bool, use_caustics)
+  /* === CyclesPlus: Photon Light Cast Flag Begin === */
+#ifdef WITH_CYCLES_SPPM_CAUSTICS
   /* CyclesPlus: this light emits photons for the caustic map. Off removes
    * its caustics entirely and hands its photon budget to the other lights. */
   NODE_SOCKET_API(bool, photon_cast)
+#endif  /* WITH_CYCLES_SPPM_CAUSTICS */
+  /* === CyclesPlus: Photon Light Cast Flag End === */
 
   NODE_SOCKET_API(bool, is_enabled)
 

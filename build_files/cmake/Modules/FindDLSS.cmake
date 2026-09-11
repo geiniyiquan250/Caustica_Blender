@@ -2,6 +2,7 @@
 #
 # SPDX-License-Identifier: BSD-3-Clause
 
+# === CyclesPlus: DLSS SDK Discovery Begin ===
 # Find the DLSS SDK. This module defines
 #  DLSS_INCLUDE_DIR, where to find the NGX headers for DLSS
 #  DLSS_FOUND, if the DLSS SDK is found.
@@ -15,3 +16,4 @@ find_path(DLSS_INCLUDE_DIR
 
 include(FindPackageHandleStandardArgs)
 find_package_handle_standard_args(DLSS REQUIRED_VARS DLSS_INCLUDE_DIR)
+# === CyclesPlus: DLSS SDK Discovery End ===

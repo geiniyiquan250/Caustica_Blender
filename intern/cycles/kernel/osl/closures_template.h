@@ -108,7 +108,11 @@ OSL_CLOSURE_STRUCT_BEGIN(GeneralizedSchlickBSDF, generalized_schlick_bsdf)
   OSL_CLOSURE_STRUCT_MEMBER(
       GeneralizedSchlickBSDF, FLOAT, float, thinfilm_thickness, "thinfilm_thickness")
   OSL_CLOSURE_STRUCT_MEMBER(GeneralizedSchlickBSDF, FLOAT, float, thinfilm_ior, "thinfilm_ior")
+  /* === CyclesPlus: Glass Dispersion OSL Closure Parameter Begin === */
+#ifdef WITH_CYCLES_SPPM_CAUSTICS
   OSL_CLOSURE_STRUCT_MEMBER(GeneralizedSchlickBSDF, FLOAT, float, inv_abbe, "inv_abbe")
+#endif  /* WITH_CYCLES_SPPM_CAUSTICS */
+  /* === CyclesPlus: Glass Dispersion OSL Closure Parameter End === */
 OSL_CLOSURE_STRUCT_END(GeneralizedSchlickBSDF, generalized_schlick_bsdf)
 
 OSL_CLOSURE_STRUCT_BEGIN(ThinGlass, thin_glass)

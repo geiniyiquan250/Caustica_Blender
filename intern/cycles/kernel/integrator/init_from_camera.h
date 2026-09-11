@@ -8,7 +8,11 @@
 
 #include "kernel/film/adaptive_sampling.h"
 #include "kernel/film/light_passes.h"
+/* === CyclesPlus: Photon Camera Path Include Begin === */
+#ifdef WITH_CYCLES_SPPM_CAUSTICS
 #include "kernel/film/photon_passes.h"
+#endif  /* WITH_CYCLES_SPPM_CAUSTICS */
+/* === CyclesPlus: Photon Camera Path Include End === */
 
 #include "kernel/integrator/path_state.h"
 
@@ -66,8 +70,12 @@ ccl_device bool integrator_init_from_camera(KernelGlobals kg,
   PROFILING_INIT(kg, PROFILING_RAY_SETUP);
 
   int x, y, sample;
+  /* === CyclesPlus: Photon Camera Path State Begin === */
+#ifdef WITH_CYCLES_SPPM_CAUSTICS
   bool photon_writer = false;
   bool photon_camera_path = true;
+#endif  /* WITH_CYCLES_SPPM_CAUSTICS */
+  /* === CyclesPlus: Photon Camera Path State End === */
 
   if (tile == nullptr) {
     /* Restart from miss. Reconstruct x, y, sample from state. */
@@ -75,10 +83,14 @@ ccl_device bool integrator_init_from_camera(KernelGlobals kg,
     x = pixel_index % (int)kernel_data.cam.width;
     y = pixel_index / (int)kernel_data.cam.width;
     sample = INTEGRATOR_STATE(state, path, sample);
+    /* === CyclesPlus: Photon Camera Path Restart State Begin === */
+#ifdef WITH_CYCLES_SPPM_CAUSTICS
     /* Writer role survives the restart through the flag stashed below. */
     const uint32_t restart_flags = INTEGRATOR_STATE(state, path, flag);
     photon_writer = (restart_flags & PATH_RAY_PHOTON_HITPOINT_WRITER) != 0;
     photon_camera_path = (restart_flags & PATH_RAY_PHOTON_CAMERA_PATH) != 0;
+#endif  /* WITH_CYCLES_SPPM_CAUSTICS */
+    /* === CyclesPlus: Photon Camera Path Restart State End === */
   }
   else {
     x = x_;
@@ -95,6 +107,8 @@ ccl_device bool integrator_init_from_camera(KernelGlobals kg,
     /* Count the sample and get an effective sample for this pixel. */
     sample = film_write_sample(kg, state, render_buffer, scheduled_sample, tile->sample_offset);
 
+    /* === CyclesPlus: Photon Hitpoint Writer Selection Begin === */
+#ifdef WITH_CYCLES_SPPM_CAUSTICS
     /* Photon caustics (SPPM): a new sample invalidates the pixel's
      * measurement point; the first qualifying diffuse hit rewrites it.
      * Only the work's LAST scheduled sample touches the hitpoint passes:
@@ -126,6 +140,8 @@ ccl_device bool integrator_init_from_camera(KernelGlobals kg,
         film_clear_photon_hitpoint(kg, state, render_buffer);
       }
     }
+#endif  /* WITH_CYCLES_SPPM_CAUSTICS */
+    /* === CyclesPlus: Photon Hitpoint Writer Selection End === */
   }
 
   /* Initialize random number seed for path. */
@@ -139,11 +155,15 @@ ccl_device bool integrator_init_from_camera(KernelGlobals kg,
     if (tile != nullptr) {
       integrator_path_init(state, DEVICE_KERNEL_INTEGRATOR_INIT_FROM_CAMERA);
       INTEGRATOR_STATE_WRITE(state, path, sample) = sample;
+      /* === CyclesPlus: Photon Camera Path Restart Stash Begin === */
+#ifdef WITH_CYCLES_SPPM_CAUSTICS
       /* Stash the writer role for the restart (the restart branch above
        * reads it back before the flags are re-initialized). */
       INTEGRATOR_STATE_WRITE(state, path, flag) =
           (photon_writer ? PATH_RAY_PHOTON_HITPOINT_WRITER : 0) |
           (photon_camera_path ? PATH_RAY_PHOTON_CAMERA_PATH : 0);
+#endif  /* WITH_CYCLES_SPPM_CAUSTICS */
+      /* === CyclesPlus: Photon Camera Path Restart Stash End === */
     }
     integrator_path_cache_miss(state, DEVICE_KERNEL_INTEGRATOR_INIT_FROM_CAMERA);
     return true;
@@ -183,6 +203,8 @@ ccl_device bool integrator_init_from_camera(KernelGlobals kg,
     }
   }
 
+  /* === CyclesPlus: Photon Camera Path Flags Begin === */
+#ifdef WITH_CYCLES_SPPM_CAUSTICS
   /* Photon caustics: apply the writer role AFTER path_state_init_integrator -
    * it resets the path flags, which silently dropped the bit when it was set
    * earlier in this function (no caustics at all: the write never fired). */
@@ -192,6 +214,8 @@ ccl_device bool integrator_init_from_camera(KernelGlobals kg,
   if (photon_camera_path) {
     INTEGRATOR_STATE_WRITE(state, path, flag) |= PATH_RAY_PHOTON_CAMERA_PATH;
   }
+#endif  /* WITH_CYCLES_SPPM_CAUSTICS */
+  /* === CyclesPlus: Photon Camera Path Flags End === */
 
   return true;
 }

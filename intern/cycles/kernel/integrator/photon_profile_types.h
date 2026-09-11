@@ -2,6 +2,7 @@
  *
  * SPDX-License-Identifier: Apache-2.0 */
 
+/* === CyclesPlus: Personal Photon Profile Types Begin === */
 #pragma once
 
 #include "util/types.h"
@@ -44,3 +45,4 @@ enum PhotonVolumeProfileCounter {
 };
 
 CCL_NAMESPACE_END
+/* === CyclesPlus: Personal Photon Profile Types End === */

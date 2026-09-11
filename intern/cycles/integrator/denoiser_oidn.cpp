@@ -707,6 +707,8 @@ bool OIDNDenoiser::denoise_buffer(const BufferParams &buffer_params,
       return false;
     }
 
+    /* === CyclesPlus: Photon Caustics OIDN Denoise Begin === */
+#ifdef WITH_CYCLES_SPPM_CAUSTICS
     const std::array<PassType, 4> passes = {
         {/* Passes which will use real albedo when it is available. */
          PASS_COMBINED,
@@ -719,6 +721,11 @@ bool OIDNDenoiser::denoise_buffer(const BufferParams &buffer_params,
          /* Passes which do not need albedo and hence if real is present it needs to become fake.
           */
          PASS_SHADOW_CATCHER}};
+#else
+    const std::array<PassType, 3> passes = {
+        {PASS_COMBINED, PASS_SHADOW_CATCHER_MATTE, PASS_SHADOW_CATCHER}};
+#endif  /* WITH_CYCLES_SPPM_CAUSTICS */
+    /* === CyclesPlus: Photon Caustics OIDN Denoise End === */
 
     for (const PassType pass_type : passes) {
       if (!denoise_run(context, pass_type)) {

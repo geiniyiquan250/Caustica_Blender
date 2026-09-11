@@ -188,6 +188,8 @@ ccl_device_forceinline void film_write_denoising_features_surface(KernelGlobals 
     }
   }
 
+  /* === CyclesPlus: DLSS Reflection Motion Features Begin === */
+#ifdef WITH_DLSS
   else if (INTEGRATOR_STATE(state, path, bounce) == 1 && (path_flag & PATH_RAY_REFLECT))
   {
     if (kernel_data.film.pass_denoising_specular_motion != PASS_UNUSED) {
@@ -201,6 +203,8 @@ ccl_device_forceinline void film_write_denoising_features_surface(KernelGlobals 
                             specular_motion.y);
     }
   }
+#endif  /* WITH_DLSS */
+  /* === CyclesPlus: DLSS Reflection Motion Features End === */
 
   /* Portion deferred to the next bounce. Specularity uses the feature weight, transparent
    * always passes through. */

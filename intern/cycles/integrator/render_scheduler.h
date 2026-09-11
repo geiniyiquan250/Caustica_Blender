@@ -249,7 +249,11 @@ class RenderScheduler {
    * unit. */
   bool is_denoise_active_during_update() const;
 
+  /* === CyclesPlus: DLSS Render Scheduler Query Begin === */
+#ifdef WITH_DLSS
   bool is_denoiser_interactive() const;
+#endif  /* WITH_DLSS */
+  /* === CyclesPlus: DLSS Render Scheduler Query End === */
 
   /* Heuristic which aims to give perceptually pleasant update of display interval in a way that at
    * lower samples and near the beginning of rendering, updates happen more often, but with higher

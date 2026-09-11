@@ -81,9 +81,13 @@ class Shader : public Node {
   NODE_SOCKET_API(EmissionSampling, emission_sampling_method)
   NODE_SOCKET_API(bool, use_transparent_shadow)
   NODE_SOCKET_API(bool, use_bump_map_correction)
+  /* === CyclesPlus: Photon Shader Cast Flag Begin === */
+#ifdef WITH_CYCLES_SPPM_CAUSTICS
   /* CyclesPlus: casts photon caustics when the integrator runs in
    * selected-casters mode (ignored in the default all-casters mode). */
   NODE_SOCKET_API(bool, photon_cast)
+#endif  /* WITH_CYCLES_SPPM_CAUSTICS */
+  /* === CyclesPlus: Photon Shader Cast Flag End === */
   NODE_SOCKET_API(VolumeSampling, volume_sampling_method)
   NODE_SOCKET_API(int, volume_interpolation_method)
   NODE_SOCKET_API(float, volume_step_rate)
@@ -126,7 +130,11 @@ class Shader : public Node {
   bool has_light_path_node;
   bool has_aov_output_node;
   bool has_time_dependency;
+  /* === CyclesPlus: Glass Dispersion Shader Flag Begin === */
+#ifdef WITH_CYCLES_SPPM_CAUSTICS
   bool has_dispersion;
+#endif  /* WITH_CYCLES_SPPM_CAUSTICS */
+  /* === CyclesPlus: Glass Dispersion Shader Flag End === */
 
   float3 emission_estimate;
   EmissionSampling emission_sampling;

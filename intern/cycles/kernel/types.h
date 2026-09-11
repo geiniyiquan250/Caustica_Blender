@@ -27,6 +27,8 @@
 
 CCL_NAMESPACE_BEGIN
 
+/* === CyclesPlus: Photon Volume Beam BVH Node Begin === */
+#ifdef WITH_CYCLES_SPPM_CAUSTICS
 /* Flat binary BVH node for finite volume photon beams. Interior nodes store
  * child indices; leaves store -(first + 1) in left and a primitive count in
  * right. Bounds already include the beam radius. */
@@ -36,6 +38,8 @@ struct KernelPhotonBeamNode {
   packed_float3 bmax;
   int right;
 };
+#endif  /* WITH_CYCLES_SPPM_CAUSTICS */
+/* === CyclesPlus: Photon Volume Beam BVH Node End === */
 
 // NOLINTBEGIN
 
@@ -304,6 +308,8 @@ enum PathRayFlag : uint32_t {
    * hitpoint writer (the last scheduled sample). All other samples must not
    * touch the hitpoint passes - on GPU the samples of a pixel are in flight
    * concurrently and racing writers tear the P/normal/weight triplet. */
+  /* === CyclesPlus: Photon Path Flags Begin === */
+#ifdef WITH_CYCLES_SPPM_CAUSTICS
   /* CyclesPlus: this path is on a specular chain that started at the pixel's
    * photon measurement point, and every specular surface on it is one the
    * photon map casts from. Light arriving while this is set is exactly what
@@ -319,6 +325,8 @@ enum PathRayFlag : uint32_t {
   /* Camera-origin path remains eligible for photon volume beams after a
    * specular/refractive surface changes visibility to TRANSMIT. */
   PATH_RAY_PHOTON_CAMERA_PATH = (1U << 29U),
+#endif  /* WITH_CYCLES_SPPM_CAUSTICS */
+  /* === CyclesPlus: Photon Path Flags End === */
 };
 
 // 8bit enum, just in case we need to move more variables in it
@@ -468,6 +476,8 @@ enum PassType {
   PASS_VOLUME_MAJORANT,
   PASS_VOLUME_MAJORANT_SAMPLE_COUNT,
 
+  /* === CyclesPlus: Photon Pass Types Begin === */
+#ifdef WITH_CYCLES_SPPM_CAUSTICS
   /* Photon caustics SPPM state (CyclesPlus). Internal per-pixel statistics,
    * all 4 components each:
    * HITPOINT: measurement point position + (sample index + 1) of the writer.
@@ -483,6 +493,8 @@ enum PassType {
    * as base + 3*group. The photon count N and the radius stay shared in TAU
    * and STATE - only the flux splits. */
   PASS_PHOTON_TAU_GROUP,
+#endif  /* WITH_CYCLES_SPPM_CAUSTICS */
+  /* === CyclesPlus: Photon Pass Types End === */
   PASS_CATEGORY_DATA_END = 63,
 
   /* Denoising passes */
@@ -1750,9 +1762,15 @@ struct KernelShader {
   float cryptomatte_id;
   int flags;
   int pass_id;
+  /* === CyclesPlus: Shader Photon Cast Flag Begin === */
+#ifdef WITH_CYCLES_SPPM_CAUSTICS
   /* CyclesPlus: material is flagged as a photon caustics caster. Only read
    * when the casters mode is "selected". */
   int photon_cast;
+#else
+  int pad2;
+#endif  /* WITH_CYCLES_SPPM_CAUSTICS */
+  /* === CyclesPlus: Shader Photon Cast Flag End === */
   int pad3;
 };
 static_assert_align(KernelShader, 16);
@@ -1892,6 +1910,8 @@ enum DeviceKernel : int {
   DEVICE_KERNEL_ADAPTIVE_SAMPLING_CONVERGENCE_FILTER_X,
   DEVICE_KERNEL_ADAPTIVE_SAMPLING_CONVERGENCE_FILTER_Y,
 
+  /* === CyclesPlus: Photon Device Kernels Begin === */
+#ifdef WITH_CYCLES_SPPM_CAUSTICS
   /* Photon caustics SPPM gather (CyclesPlus). */
   DEVICE_KERNEL_FILM_PHOTON_GATHER,
 
@@ -1910,6 +1930,8 @@ enum DeviceKernel : int {
   DEVICE_KERNEL_PHOTON_BIN_COUNT,
   DEVICE_KERNEL_PHOTON_BIN_CURSOR_INIT,
   DEVICE_KERNEL_PHOTON_BIN_SCATTER,
+#endif  /* WITH_CYCLES_SPPM_CAUSTICS */
+  /* === CyclesPlus: Photon Device Kernels End === */
 
   DEVICE_KERNEL_FILTER_GUIDING_PREPROCESS,
   DEVICE_KERNEL_FILTER_GUIDING_PREPROCESS_TO_SURFACE,

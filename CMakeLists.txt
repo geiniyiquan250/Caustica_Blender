@@ -314,7 +314,9 @@ option(WITH_MANIFOLD "Enable features depending on Manifold (Fast Robust Boolean
 
 option(WITH_OPENIMAGEDENOISE "Enable the OpenImageDenoise compositing node" ON)
 
+# === CyclesPlus: DLSS Build Option Begin ===
 option(WITH_DLSS "Enable NVIDIA DLSS Ray Reconstruction support" OFF)
+# === CyclesPlus: DLSS Build Option End ===
 
 option(WITH_OPENSUBDIV "Enable OpenSubdiv for surface subdivision" ON)
 
@@ -604,6 +606,9 @@ option(WITH_CYCLES_OSL "Build Cycles with OpenShadingLanguage support" ON)
 option(WITH_CYCLES_PATH_GUIDING "Build Cycles with path guiding support" ON)
 option(WITH_CYCLES_EMBREE "Build Cycles with Embree support" ON)
 option(WITH_CYCLES_DEBUG "Build Cycles with options useful for debugging (e.g., MIS)" OFF)
+
+# CyclesPlus: Personal features
+option(WITH_CYCLES_SPPM_CAUSTICS "Enable SPPM photon caustics (CyclesPlus)" ON)
 
 option(WITH_CYCLES_STANDALONE "Build Cycles standalone application" OFF)
 option(WITH_CYCLES_STANDALONE_GUI "Build Cycles standalone with GUI" OFF)

@@ -50,6 +50,8 @@ class CUDADeviceQueue : public DeviceQueue {
   CUDADevice *cuda_device_;
   CUstream cuda_stream_;
 
+  /* === CyclesPlus: CUDA Caustics Profile State Begin === */
+#ifdef WITH_CYCLES_SPPM_CAUSTICS
   /* Event pairs are reused; profiling never waits for a pending pair to become available. */
   struct CausticsProfileEvent {
     CUevent begin = nullptr;
@@ -67,6 +69,8 @@ class CUDADeviceQueue : public DeviceQueue {
   void caustics_profile_end();
   bool caustics_profile_read(CausticsProfileEvent &event);
   void caustics_profile_collect();
+#endif  /* WITH_CYCLES_SPPM_CAUSTICS */
+  /* === CyclesPlus: CUDA Caustics Profile State End === */
 
   void assert_success(CUresult result, const char *operation);
 };

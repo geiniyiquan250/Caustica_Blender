@@ -606,16 +606,23 @@ void Scene::update_kernel_features()
   }
 
   dscene.data.integrator.use_caustics = false;
+  /* === CyclesPlus: Photon Native MNEE Exclusive Mode Begin === */
+#ifdef WITH_CYCLES_SPPM_CAUSTICS
   /* Photon Caustics exclusive mode: its estimator owns refractive and
    * reflective caustics, so do not compile or run the native MNEE path in
    * parallel. Native caustics remain available when Photon Caustics is off. */
   if (!integrator->get_use_photon_caustics() && device->info.has_mnee() &&
       has_caustics_caster && has_caustics_receiver &&
       has_caustics_light)
+#else
+  if (device->info.has_mnee() && has_caustics_caster && has_caustics_receiver &&
+      has_caustics_light)
+#endif  /* WITH_CYCLES_SPPM_CAUSTICS */
   {
     dscene.data.integrator.use_caustics = true;
     kernel_features |= KERNEL_FEATURE_MNEE;
   }
+  /* === CyclesPlus: Photon Native MNEE Exclusive Mode End === */
 
   if (integrator->get_guiding_params(device).use) {
     kernel_features |= KERNEL_FEATURE_PATH_GUIDING;

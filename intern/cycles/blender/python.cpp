@@ -11,7 +11,11 @@
 #include "blender/sync.h"
 #include "blender/util.h"
 
-#include "integrator/photon_map.h"
+/* === CyclesPlus: Photon Report Include Begin === */
+#ifdef WITH_CYCLES_SPPM_CAUSTICS
+#  include "integrator/photon_map.h"
+#endif  /* WITH_CYCLES_SPPM_CAUSTICS */
+/* === CyclesPlus: Photon Report Include End === */
 
 #include "session/denoising.h"
 #include "session/merge.h"
@@ -408,6 +412,8 @@ static PyObject *sync_func(PyObject * /*self*/, PyObject *args)
   Py_RETURN_NONE;
 }
 
+/* === CyclesPlus: Photon Material Report Function Begin === */
+#ifdef WITH_CYCLES_SPPM_CAUSTICS
 /* CyclesPlus: material classification report for the caustics panel. Tuple
  * of (material_name, level, reason) with level 1 = approximated and
  * 2 = casts no caustics; exactly classified materials are not listed. */
@@ -426,6 +432,8 @@ static PyObject *photon_material_report_func(PyObject * /*self*/, PyObject * /*a
 
   return ret;
 }
+#endif  /* WITH_CYCLES_SPPM_CAUSTICS */
+/* === CyclesPlus: Photon Material Report Function End === */
 
 static PyObject *available_devices_func(PyObject * /*self*/, PyObject *args)
 {
@@ -461,7 +469,13 @@ static PyObject *available_devices_func(PyObject * /*self*/, PyObject *args)
     PyTuple_SET_ITEM(device_tuple, 6, PyBool_FromLong(device.denoisers & DENOISER_OPTIX));
     PyTuple_SET_ITEM(device_tuple, 7, PyBool_FromLong(device.has_execution_optimization));
     PyTuple_SET_ITEM(device_tuple, 8, PyBool_FromLong(device.meets_driver_requirement));
+    /* === CyclesPlus: DLSS Device Tuple Flag Begin === */
+#ifdef WITH_DLSS
     PyTuple_SET_ITEM(device_tuple, 9, PyBool_FromLong(device.denoisers & DENOISER_DLSS));
+#else
+    PyTuple_SET_ITEM(device_tuple, 9, PyBool_FromLong(false));
+#endif  /* WITH_DLSS */
+    /* === CyclesPlus: DLSS Device Tuple Flag End === */
     PyTuple_SET_ITEM(ret, i, device_tuple);
   }
 
@@ -854,7 +868,11 @@ static PyMethodDef methods[] = {
     {"osl_compile", osl_compile_func, METH_VARARGS, ""},
 #endif
     {"available_devices", available_devices_func, METH_VARARGS, ""},
+    /* === CyclesPlus: Photon Material Report Method Begin === */
+#ifdef WITH_CYCLES_SPPM_CAUSTICS
     {"photon_material_report", photon_material_report_func, METH_NOARGS, ""},
+#endif  /* WITH_CYCLES_SPPM_CAUSTICS */
+    /* === CyclesPlus: Photon Material Report Method End === */
     {"system_info", system_info_func, METH_NOARGS, ""},
 
     /* Standalone denoising */
@@ -953,11 +971,13 @@ void *blender::CCL_python_module_init()
     PyModule_AddObjectRef(mod, "with_openimagedenoise", Py_False);
   }
 
+/* === CyclesPlus: DLSS Python Availability Begin === */
 #ifdef WITH_DLSS
   PyModule_AddObjectRef(mod, "with_dlss", Py_True);
 #else
   PyModule_AddObjectRef(mod, "with_dlss", Py_False);
 #endif
+/* === CyclesPlus: DLSS Python Availability End === */
 
 #ifdef WITH_CYCLES_DEBUG
   PyModule_AddObjectRef(mod, "with_debug", Py_True);

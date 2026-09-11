@@ -220,6 +220,7 @@ static void node_declare(NodeDeclarationBuilder &b)
       .short_label("Weight")
       .description("Blend between transmission and other base layer components");
 #define SOCK_TRANSMISSION_WEIGHT_ID 19
+  /* === CyclesPlus: Glass Dispersion Node Inputs Begin === */
   transmission.add_input<decl::Float>("Transmission Dispersion Scale"_ustr)
       .default_value(0.0f)
       .min(0.0f)
@@ -234,6 +235,7 @@ static void node_declare(NodeDeclarationBuilder &b)
       .description(
           "Abbe number of the base dielectric medium. Smaller number gives stronger dispersion");
 #define SOCK_TRANSMISSION_DISPERSION_ABBE_NUMBER_ID 21
+  /* === CyclesPlus: Glass Dispersion Node Inputs End === */
 
   /* Panel for Coat settings. */
   PanelDeclarationBuilder &coat = b.add_panel("Coat"_ustr).default_closed(true);

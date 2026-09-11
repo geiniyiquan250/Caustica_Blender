@@ -3,7 +3,11 @@
  * SPDX-License-Identifier: Apache-2.0 */
 
 #include "integrator/path_trace_work_gpu.h"
+/* === CyclesPlus: Photon GPU Profiler Include Begin === */
+#ifdef WITH_CYCLES_SPPM_CAUSTICS
 #include "util/caustics_profiler.h"
+#endif  /* WITH_CYCLES_SPPM_CAUSTICS */
+/* === CyclesPlus: Photon GPU Profiler Include End === */
 
 #include "device/device.h"
 
@@ -17,7 +21,11 @@
 #include "util/string.h"
 
 #include "kernel/device/gpu/block_sizes.h"
+/* === CyclesPlus: Photon GPU Profile Types Include Begin === */
+#ifdef WITH_CYCLES_SPPM_CAUSTICS
 #include "kernel/integrator/photon_profile_types.h"
+#endif  /* WITH_CYCLES_SPPM_CAUSTICS */
+/* === CyclesPlus: Photon GPU Profile Types Include End === */
 #include "kernel/types.h"
 
 CCL_NAMESPACE_BEGIN
@@ -85,7 +93,11 @@ PathTraceWorkGPU::PathTraceWorkGPU(Device *device,
       queue_(device->gpu_queue_create()),
       integrator_state_soa_kernel_features_(0),
       integrator_queue_counter_(device, "integrator_queue_counter", MEM_READ_WRITE),
+      /* === CyclesPlus: Photon GPU Profile Buffer Initialization Begin === */
+#ifdef WITH_CYCLES_SPPM_CAUSTICS
       photon_volume_profile_(device, "photon_volume_profile", MEM_READ_WRITE),
+#endif  /* WITH_CYCLES_SPPM_CAUSTICS */
+      /* === CyclesPlus: Photon GPU Profile Buffer Initialization End === */
       integrator_shader_sort_counter_(device, "integrator_shader_sort_counter", MEM_READ_WRITE),
       integrator_shader_raytrace_sort_counter_(
           device, "integrator_shader_raytrace_sort_counter", MEM_READ_WRITE),
@@ -314,6 +326,8 @@ void PathTraceWorkGPU::alloc_work_memory()
   alloc_integrator_sorting();
   alloc_integrator_path_split();
 
+  /* === CyclesPlus: Photon GPU Profile Allocation Begin === */
+#ifdef WITH_CYCLES_SPPM_CAUSTICS
   const char *detail = std::getenv("CYCLESPLUS_CAUSTICS_PROFILE_DETAIL");
   if (photon_profile_enabled() && (!detail || detail[0] != '0') &&
       (device_->info.type == DEVICE_CUDA || device_->info.type == DEVICE_OPTIX) &&
@@ -324,6 +338,8 @@ void PathTraceWorkGPU::alloc_work_memory()
     integrator_state_gpu_.photon_volume_profile =
         (uint64_t *)photon_volume_profile_.device_pointer;
   }
+#endif  /* WITH_CYCLES_SPPM_CAUSTICS */
+  /* === CyclesPlus: Photon GPU Profile Allocation End === */
 }
 
 void PathTraceWorkGPU::init_execution()
@@ -379,9 +395,13 @@ void PathTraceWorkGPU::render_samples(RenderStatistics &statistics,
 
   enqueue_reset();
 
+  /* === CyclesPlus: Photon GPU Profile Reset Begin === */
+#ifdef WITH_CYCLES_SPPM_CAUSTICS
   if (photon_volume_profile_.size()) {
     queue_->zero_to_device(photon_volume_profile_);
   }
+#endif  /* WITH_CYCLES_SPPM_CAUSTICS */
+  /* === CyclesPlus: Photon GPU Profile Reset End === */
 
   int num_iterations = 0;
   uint64_t num_busy_accum = 0;
@@ -428,6 +448,8 @@ void PathTraceWorkGPU::render_samples(RenderStatistics &statistics,
     statistics.occupancy = 0.0f;
   }
 
+  /* === CyclesPlus: Photon GPU Profile Readback Begin === */
+#ifdef WITH_CYCLES_SPPM_CAUSTICS
   if (photon_volume_profile_.size()) {
     CCL_PHOTON_PROFILE_SCOPE("volume.profile_readback", queue_.get());
     queue_->copy_from_device(photon_volume_profile_);
@@ -463,6 +485,8 @@ void PathTraceWorkGPU::render_samples(RenderStatistics &statistics,
       }
     }
   }
+#endif  /* WITH_CYCLES_SPPM_CAUSTICS */
+  /* === CyclesPlus: Photon GPU Profile Readback End === */
 }
 
 DeviceKernel PathTraceWorkGPU::get_most_queued_kernel() const
@@ -1261,6 +1285,8 @@ void PathTraceWorkGPU::enqueue_adaptive_sampling_filter_y()
   queue_->enqueue(DEVICE_KERNEL_ADAPTIVE_SAMPLING_CONVERGENCE_FILTER_Y, work_size, args);
 }
 
+/* === CyclesPlus: Photon GPU Gather Implementation Begin === */
+#ifdef WITH_CYCLES_SPPM_CAUSTICS
 void PathTraceWorkGPU::photon_gather(const int num_samples, const int consume)
 {
   CCL_PHOTON_PROFILE_SCOPE("photon.gpu_gather_and_smooth", this, consume);
@@ -1298,6 +1324,8 @@ void PathTraceWorkGPU::photon_gather(const int num_samples, const int consume)
   CCL_PHOTON_PROFILE_SCOPE("photon.gather_wait", queue_.get());
   queue_->synchronize();
 }
+#endif  /* WITH_CYCLES_SPPM_CAUSTICS */
+/* === CyclesPlus: Photon GPU Gather Implementation End === */
 
 void PathTraceWorkGPU::cryptomatte_postproces()
 {

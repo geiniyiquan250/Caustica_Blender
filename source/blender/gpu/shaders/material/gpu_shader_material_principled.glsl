@@ -64,8 +64,10 @@ void node_bsdf_principled(float4 base_color,
                           float anisotropic_rotation,
                           float3 T,
                           float transmission_weight,
+                          /* === CyclesPlus: Glass Dispersion GPU Inputs Begin === */
                           float transmission_dispersion_scale,
                           float transmission_dispersion_abbe_number,
+                          /* === CyclesPlus: Glass Dispersion GPU Inputs End === */
                           float coat_weight,
                           float coat_roughness,
                           float coat_ior,
@@ -96,9 +98,11 @@ void node_bsdf_principled(float4 base_color,
   /* Not used by EEVEE */
   /* anisotropic = saturate(anisotropic); */
   transmission_weight = saturate(transmission_weight);
+  /* === CyclesPlus: Glass Dispersion GPU Reserved Inputs Begin === */
   /* Not used by EEVEE */
   /* transmission_dispersion_scale = saturate(transmission_dispersion_scale); */
   /* transmission_dispersion_abbe_number = max(transmission_dispersion_abbe_number, 0.0f); */
+  /* === CyclesPlus: Glass Dispersion GPU Reserved Inputs End === */
   coat_weight = max(coat_weight, 0.0f);
   coat_roughness = saturate(coat_roughness);
   coat_ior = max(coat_ior, 1.0f);

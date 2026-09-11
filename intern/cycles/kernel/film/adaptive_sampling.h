@@ -4,7 +4,11 @@
 
 #pragma once
 
+/* === CyclesPlus: Photon Adaptive Sampling Include Begin === */
+#ifdef WITH_CYCLES_SPPM_CAUSTICS
 #include "kernel/film/photon_passes.h"
+#endif  /* WITH_CYCLES_SPPM_CAUSTICS */
+/* === CyclesPlus: Photon Adaptive Sampling Include End === */
 #include "kernel/film/write.h"
 
 CCL_NAMESPACE_BEGIN
@@ -54,12 +58,16 @@ ccl_device bool film_adaptive_sampling_convergence_check(KernelGlobals kg,
     return true;
   }
 
+  /* === CyclesPlus: Photon Adaptive Sampling Begin === */
+#ifdef WITH_CYCLES_SPPM_CAUSTICS
   /* Photon caustics (CyclesPlus): retiring freezes the pixel's SPPM state -
    * hold the pixel while its caustic may simply not have arrived yet. */
   if (!film_photon_adaptive_can_retire(kg, buffer)) {
     buffer[kernel_data.film.pass_adaptive_aux_buffer + 3] = 0.0f;
     return false;
   }
+#endif  /* WITH_CYCLES_SPPM_CAUSTICS */
+  /* === CyclesPlus: Photon Adaptive Sampling End === */
 
   const float4 I = kernel_read_pass_float4(buffer + kernel_data.film.pass_combined);
 

@@ -79,6 +79,8 @@ class Integrator : public Node {
 
   NODE_SOCKET_API(bool, caustics_reflective)
   NODE_SOCKET_API(bool, caustics_refractive)
+  /* === CyclesPlus: Photon Integrator Sockets Begin === */
+#ifdef WITH_CYCLES_SPPM_CAUSTICS
   NODE_SOCKET_API(bool, use_photon_caustics)
   NODE_SOCKET_API(bool, use_photon_volume_caustics)
   NODE_SOCKET_API(int, photon_caustics_count)
@@ -90,6 +92,8 @@ class Integrator : public Node {
    * physically correct result). Applied at the gather, so it scales the
    * displayed caustic without touching the photon transport. */
   NODE_SOCKET_API(float, photon_caustics_intensity)
+#endif  /* WITH_CYCLES_SPPM_CAUSTICS */
+  /* === CyclesPlus: Photon Integrator Sockets End === */
   NODE_SOCKET_API(float, filter_glossy)
 
   NODE_SOCKET_API(bool, use_direct_light);

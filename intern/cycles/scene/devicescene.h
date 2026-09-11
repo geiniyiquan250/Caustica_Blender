@@ -86,6 +86,8 @@ class DeviceScene {
   /* IES lights */
   device_vector<float> ies_lights;
 
+  /* === CyclesPlus: Photon Device Arrays Begin === */
+#ifdef WITH_CYCLES_SPPM_CAUSTICS
   /* Photon caustics (CyclesPlus). Uploaded per progressive batch from
    * PathTrace::set_photon_grid, not by a scene manager. */
   device_vector<float4> photon_pos;
@@ -99,6 +101,8 @@ class DeviceScene {
   device_vector<float4> photon_volume_beam_flux;
   device_vector<float4> photon_volume_beam_sigma;
   device_vector<KernelPhotonBeamNode> photon_volume_beam_nodes;
+#endif  /* WITH_CYCLES_SPPM_CAUSTICS */
+  /* === CyclesPlus: Photon Device Arrays End === */
 
   /* Volume. */
   device_vector<KernelOctreeNode> volume_tree_nodes;

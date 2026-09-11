@@ -83,12 +83,16 @@ const NodeEnum *Pass::get_type_enum()
     pass_type_enum.insert("aov_value", PASS_AOV_VALUE);
     pass_type_enum.insert("adaptive_aux_buffer", PASS_ADAPTIVE_AUX_BUFFER);
     pass_type_enum.insert("sample_count", PASS_SAMPLE_COUNT);
+    /* === CyclesPlus: Photon Pass Type Enum Begin === */
+#ifdef WITH_CYCLES_SPPM_CAUSTICS
     pass_type_enum.insert("caustics", PASS_CAUSTICS);
     pass_type_enum.insert("photon_hitpoint", PASS_PHOTON_HITPOINT);
     pass_type_enum.insert("photon_weight", PASS_PHOTON_WEIGHT);
     pass_type_enum.insert("photon_tau", PASS_PHOTON_TAU);
     pass_type_enum.insert("photon_state", PASS_PHOTON_STATE);
     pass_type_enum.insert("photon_tau_group", PASS_PHOTON_TAU_GROUP);
+#endif  /* WITH_CYCLES_SPPM_CAUSTICS */
+    /* === CyclesPlus: Photon Pass Type Enum End === */
     pass_type_enum.insert("diffuse_color", PASS_DIFFUSE_COLOR);
     pass_type_enum.insert("glossy_color", PASS_GLOSSY_COLOR);
     pass_type_enum.insert("transmission_color", PASS_TRANSMISSION_COLOR);
@@ -99,7 +103,11 @@ const NodeEnum *Pass::get_type_enum()
     pass_type_enum.insert("denoising_roughness", PASS_DENOISING_ROUGHNESS);
     pass_type_enum.insert("denoising_depth", PASS_DENOISING_DEPTH);
     pass_type_enum.insert("denoising_backward_motion", PASS_DENOISING_BACKWARD_MOTION);
+    /* === CyclesPlus: DLSS Pass Type Enum Begin === */
+#ifdef WITH_DLSS
     pass_type_enum.insert("denoising_specular_motion", PASS_DENOISING_SPECULAR_MOTION);
+#endif  /* WITH_DLSS */
+    /* === CyclesPlus: DLSS Pass Type Enum End === */
     pass_type_enum.insert("denoising_previous", PASS_DENOISING_PREVIOUS);
     pass_type_enum.insert("volume_majorant", PASS_VOLUME_MAJORANT);
     pass_type_enum.insert("volume_majorant_sample_count", PASS_VOLUME_MAJORANT_SAMPLE_COUNT);
@@ -302,6 +310,8 @@ PassInfo Pass::get_info(const PassType type,
       pass_info.use_filter = false;
       pass_info.support_denoise = true;
       break;
+    /* === CyclesPlus: Photon Caustics Pass Info Begin === */
+#ifdef WITH_CYCLES_SPPM_CAUSTICS
     case PASS_CAUSTICS:
       /* Photon caustics (CyclesPlus). The gather kernel writes the caustic
        * scaled by the sample count, exactly like the combined pass - so this
@@ -330,6 +340,8 @@ PassInfo Pass::get_info(const PassType type,
        * side-steps the whole noisy-twin problem for them. */
       pass_info.support_denoise = !is_lightgroup;
       break;
+#endif  /* WITH_CYCLES_SPPM_CAUSTICS */
+    /* === CyclesPlus: Photon Caustics Pass Info End === */
     case PASS_VOLUME_MAJORANT:
       pass_info.num_components = 1;
       pass_info.use_filter = false;
@@ -348,7 +360,11 @@ PassInfo Pass::get_info(const PassType type,
     case PASS_DENOISING_SPECULAR_ALBEDO:
     case PASS_DENOISING_NORMAL:
     case PASS_DENOISING_BACKWARD_MOTION:
+    /* === CyclesPlus: DLSS Specular Motion Pass Info Begin === */
+#ifdef WITH_DLSS
     case PASS_DENOISING_SPECULAR_MOTION:
+#endif  /* WITH_DLSS */
+    /* === CyclesPlus: DLSS Specular Motion Pass Info End === */
       pass_info.num_components = 3;
       break;
     case PASS_DENOISING_ROUGHNESS:
@@ -387,6 +403,8 @@ PassInfo Pass::get_info(const PassType type,
       pass_info.use_exposure = false;
       break;
 
+    /* === CyclesPlus: Photon Statistics Pass Info Begin === */
+#ifdef WITH_CYCLES_SPPM_CAUSTICS
     /* Photon caustics SPPM statistics (CyclesPlus): raw per-pixel state,
      * never filtered, exposed or accumulated like light passes. */
     case PASS_PHOTON_HITPOINT:
@@ -397,6 +415,8 @@ PassInfo Pass::get_info(const PassType type,
       pass_info.use_exposure = false;
       pass_info.use_filter = false;
       break;
+#endif  /* WITH_CYCLES_SPPM_CAUSTICS */
+    /* === CyclesPlus: Photon Statistics Pass Info End === */
     case PASS_PHOTON_TAU_GROUP:
       /* One per light group, holding that group's share of tau. Three
        * components - the photon count and the radius stay shared in

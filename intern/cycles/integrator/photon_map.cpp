@@ -2,6 +2,7 @@
  *
  * SPDX-License-Identifier: Apache-2.0 */
 
+/* === CyclesPlus: Personal Photon Map Implementation Begin === */
 /* Photon caustics: host-side photon tracing.
  *
  * Ported from the FastCaustics native core (caustics_core.cpp): own SAH BVH
@@ -5627,3 +5628,4 @@ void PhotonMap::set_batch_done_callback(std::function<void()> callback)
 }
 
 CCL_NAMESPACE_END
+/* === CyclesPlus: Personal Photon Map Implementation End === */

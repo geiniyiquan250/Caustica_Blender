@@ -987,7 +987,11 @@ ccl_device_inline ShaderEvalResult kernel_path_mnee_sample(KernelGlobals kg,
   ManifoldVertex vertices[MNEE_MAX_CAUSTIC_CASTERS];
 
   int vertex_count = 0;
+  /* === CyclesPlus: Glass Dispersion MNEE Begin === */
+#ifdef WITH_CYCLES_SPPM_CAUSTICS
   bool has_dispersion = false;
+#endif  /* WITH_CYCLES_SPPM_CAUSTICS */
+  /* === CyclesPlus: Glass Dispersion MNEE End === */
   for (int isect_count = 0; isect_count < MNEE_MAX_INTERSECTION_COUNT; isect_count++) {
     const bool hit = scene_intersect(kg, &probe_ray, PATH_RAY_VISIBILITY_TRANSMIT, &probe_isect);
     if (!hit) {
@@ -1012,9 +1016,11 @@ ccl_device_inline ShaderEvalResult kernel_path_mnee_sample(KernelGlobals kg,
       /* Setup shader data on caustic caster and evaluate context. */
       shader_setup_from_ray(kg, sd_mnee, &probe_ray, &probe_isect);
 
-#ifdef __SPECTRAL__
+      /* === CyclesPlus: Glass Dispersion MNEE Wavelength Begin === */
+#if defined(WITH_CYCLES_SPPM_CAUSTICS) && defined(__SPECTRAL__)
       shader_setup_wavelength(kg, sd_mnee, state);
-#endif
+#endif  /* WITH_CYCLES_SPPM_CAUSTICS && __SPECTRAL__ */
+      /* === CyclesPlus: Glass Dispersion MNEE Wavelength End === */
 
       /* Reject caster if smooth normals are not available: Manifold exploration assumes local
        * differential geometry can be created at any point on the surface which is not possible if
@@ -1030,19 +1036,23 @@ ccl_device_inline ShaderEvalResult kernel_path_mnee_sample(KernelGlobals kg,
         return SHADER_EVAL_CACHE_MISS;
       }
 
-#if defined(__KERNEL_ONEAPI__)
+      /* === CyclesPlus: Glass Dispersion MNEE Query Begin === */
+#ifdef WITH_CYCLES_SPPM_CAUSTICS
+#  if defined(__KERNEL_ONEAPI__)
       /* FIXME: Temporary workaround for a bug in the oneAPI + Embree backend that sometimes sets
        * the SR_BSDF_HAS_DISPERSION flag when calling `surface_shader_eval` inside the MNEE code
        * path. This happens even in scenes where no material uses dispersion. This workaround
        * disables dispersion support + MNEE for all oneAPI backends. Proper fix should be on the
        * oneAPI side. */
       sd_mnee->runtime_flag &= ~SR_BSDF_HAS_DISPERSION;
-#endif
+#  endif
 
       /* Query before #mnee_setup_manifold_vertex resets the runtime flag. */
       if (sd_mnee->runtime_flag & SR_BSDF_HAS_DISPERSION) {
         has_dispersion = true;
       }
+#endif  /* WITH_CYCLES_SPPM_CAUSTICS */
+      /* === CyclesPlus: Glass Dispersion MNEE Query End === */
 
       /* Get and sample refraction bsdf */
       bool found_refractive_microfacet_bsdf = false;
@@ -1150,11 +1160,13 @@ ccl_device_inline ShaderEvalResult kernel_path_mnee_sample(KernelGlobals kg,
       return result;
     }
 
-#ifdef __SPECTRAL__
+    /* === CyclesPlus: Glass Dispersion MNEE Throughput Begin === */
+#if defined(WITH_CYCLES_SPPM_CAUSTICS) && defined(__SPECTRAL__)
     if (has_dispersion && !(INTEGRATOR_STATE(state, path, flag) & PATH_RAY_SPECTRAL)) {
       *throughput *= dispersion_throughput_weight(kg, sd_mnee->rand_wavelength);
     }
-#endif
+#endif  /* WITH_CYCLES_SPPM_CAUSTICS && __SPECTRAL__ */
+    /* === CyclesPlus: Glass Dispersion MNEE Throughput End === */
 
     r_vertex_count = vertex_count;
     return SHADER_EVAL_OK;

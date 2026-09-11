@@ -276,12 +276,14 @@ def enum_openimagedenoise_denoiser(self, context):
     return []
 
 
+# === CyclesPlus: DLSS Denoiser Enum Begin ===
 def enum_dlss_denoiser(self, context):
     import _cycles
     if _cycles.with_dlss and (not context or bool(
             context.preferences.addons[__package__].preferences.get_devices_for_type('CUDA'))):
         return [('DLSS', "DLSS", n_("Use NVIDIA DLSS Ray Reconstruction"), 8)]
     return []
+# === CyclesPlus: DLSS Denoiser Enum End ===
 
 
 def enum_optix_denoiser(self, context):
@@ -294,6 +296,7 @@ def enum_optix_denoiser(self, context):
 def enum_preview_denoiser(self, context):
     optix_items = enum_optix_denoiser(self, context)
     oidn_items = enum_openimagedenoise_denoiser(self, context)
+    # === CyclesPlus: DLSS Preview Denoiser Items Begin ===
     dlss_items = enum_dlss_denoiser(self, context)
 
     if len(optix_items) or len(oidn_items) or len(dlss_items):
@@ -309,6 +312,7 @@ def enum_preview_denoiser(self, context):
     items += optix_items
     items += oidn_items
     items += dlss_items
+    # === CyclesPlus: DLSS Preview Denoiser Items End ===
     return items
 
 
@@ -355,6 +359,7 @@ enum_denoising_quality = (
      3),
 )
 
+# === CyclesPlus: DLSS Upscale Quality Enum Begin ===
 enum_denoising_upscale_quality = (
     ('NONE', "None", "Highest quality without upscaling", 0),
     ('QUALITY', "Quality", "Offers higher image quality than balanced mode", 1),
@@ -362,6 +367,7 @@ enum_denoising_upscale_quality = (
     ('PERFORMANCE', "Performance", "Offers a higher performance boost than balanced mode", 3),
     ('ULTRA_PERFORMANCE', "Ultra Performance", "Offers the highest performance boost", 4),
 )
+# === CyclesPlus: DLSS Upscale Quality Enum End ===
 
 enum_direct_light_sampling_type = (
     ('MULTIPLE_IMPORTANCE_SAMPLING',
@@ -499,12 +505,14 @@ class CyclesRenderSettings(bpy.types.PropertyGroup):
         description="Perform denoising on GPU devices configured in the system tab in the user preferences. This is significantly faster than on CPU, but requires additional GPU memory. When large scenes need more GPU memory, this option can be disabled",
         default=True,
     )
+    # === CyclesPlus: DLSS Upscale Quality Property Begin ===
     preview_denoising_upscale_quality: EnumProperty(
         name="Viewport Denoising Upscale Quality",
         description="Overall upscale factor and denoising quality when using DLSS",
         items=enum_denoising_upscale_quality,
         default='BALANCED',
     )
+    # === CyclesPlus: DLSS Upscale Quality Property End ===
 
     samples: IntProperty(
         name="Samples",
@@ -671,6 +679,7 @@ class CyclesRenderSettings(bpy.types.PropertyGroup):
         default=True,
     )
 
+    # === CyclesPlus: Photon Caustics Render Properties Begin ===
     use_photon_caustics: BoolProperty(
         name="光子焦散",
         description="Render caustics with a photon map traced at render start. "
@@ -725,6 +734,7 @@ class CyclesRenderSettings(bpy.types.PropertyGroup):
         ),
         default='ALL',
     )
+    # === CyclesPlus: Photon Caustics Render Properties End ===
 
     caustics_refractive: BoolProperty(
         name="折射焦散",
@@ -1263,6 +1273,7 @@ class CyclesMaterialSettings(bpy.types.PropertyGroup):
         default=True,
     )
 
+    # === CyclesPlus: Photon Material Cast Property Begin ===
     photon_cast: BoolProperty(
         name="Cast Photon Caustics",
         description="This material casts photon caustics when the caustics casters "
@@ -1271,6 +1282,7 @@ class CyclesMaterialSettings(bpy.types.PropertyGroup):
         "Has no effect in the default All Materials mode",
         default=False,
     )
+    # === CyclesPlus: Photon Material Cast Property End ===
     volume_sampling: EnumProperty(
         name="Volume Sampling",
         description="Sampling method to use for volumes",
@@ -1334,6 +1346,7 @@ class CyclesLightSettings(bpy.types.PropertyGroup):
         default=False,
     )
 
+    # === CyclesPlus: Photon Light Cast Property Begin ===
     photon_cast: BoolProperty(
         name="Cast Photon Caustics",
         description="This light emits photons for the caustic map. Turn it off for "
@@ -1342,6 +1355,7 @@ class CyclesLightSettings(bpy.types.PropertyGroup):
         "faster and with less noise",
         default=True,
     )
+    # === CyclesPlus: Photon Light Cast Property End ===
 
     @classmethod
     def register(cls):
@@ -1365,6 +1379,7 @@ class CyclesWorldSettings(bpy.types.PropertyGroup):
         "Lights, caster and receiver objects must have shadow caustics options set to enable this",
         default=False,
     )
+    # === CyclesPlus: Photon World Cast Property Begin ===
     photon_cast: BoolProperty(
         name="Cast Photon Caustics",
         description="The world background emits photons for the caustic map "
@@ -1372,6 +1387,7 @@ class CyclesWorldSettings(bpy.types.PropertyGroup):
         "photon budget on the scene lights",
         default=True,
     )
+    # === CyclesPlus: Photon World Cast Property End ===
     sampling_method: EnumProperty(
         name="Sampling Method",
         description="How to sample the background light",
@@ -1678,6 +1694,7 @@ class CyclesRenderLayerSettings(bpy.types.PropertyGroup):
         update=update_render_passes,
     )
 
+    # === CyclesPlus: Photon Caustics Render Pass Property Begin ===
     use_pass_caustics: BoolProperty(
         name="Caustics",
         description="Pass containing only the photon caustics, so they can be graded "
@@ -1686,6 +1703,7 @@ class CyclesRenderLayerSettings(bpy.types.PropertyGroup):
         default=False,
         update=update_render_passes,
     )
+    # === CyclesPlus: Photon Caustics Render Pass Property End ===
 
     use_denoising: BoolProperty(
         name="Use Denoising",
@@ -1939,6 +1957,7 @@ class CyclesPreferences(bpy.types.AddonPreferences):
 
         return False
 
+    # === CyclesPlus: DLSS GPU Preference Query Begin ===
     def has_dlss_gpu_devices(self):
         compute_device_type = self.get_compute_device_type()
         if compute_device_type == 'NONE':
@@ -1949,6 +1968,7 @@ class CyclesPreferences(bpy.types.AddonPreferences):
             if device[8] and device[9] and self.find_existing_device_entry(device).use:
                 return True
         return False
+    # === CyclesPlus: DLSS GPU Preference Query End ===
 
     def has_optixdenoiser_gpu_devices(self):
         compute_device_type = self.get_compute_device_type()

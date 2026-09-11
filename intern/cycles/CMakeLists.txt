@@ -216,6 +216,10 @@ if(WITH_CYCLES_STANDALONE_GUI)
   add_definitions(-DWITH_CYCLES_STANDALONE_GUI)
 endif()
 
+if(WITH_CYCLES_SPPM_CAUSTICS)
+  add_definitions(-DWITH_CYCLES_SPPM_CAUSTICS)
+endif()
+
 if(WITH_CYCLES_PTEX)
   add_definitions(-DWITH_PTEX)
 endif()
@@ -311,6 +315,7 @@ if(WITH_OPENIMAGEDENOISE)
   add_definitions(-DWITH_OPENIMAGEDENOISE)
 endif()
 
+# === CyclesPlus: DLSS Build Integration Begin ===
 if(WITH_DLSS)
   find_package(DLSS)
   if(DLSS_FOUND)
@@ -319,6 +324,7 @@ if(WITH_DLSS)
     set_and_warn_library_found("DLSS" DLSS_FOUND WITH_DLSS)
   endif()
 endif()
+# === CyclesPlus: DLSS Build Integration End ===
 
 if(WITH_OPENVDB)
   add_definitions(-DWITH_OPENVDB)

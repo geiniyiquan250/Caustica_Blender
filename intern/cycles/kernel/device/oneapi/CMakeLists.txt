@@ -136,6 +136,11 @@ if(WITH_CYCLES_DEVICE_ONEAPI)
       -DWITH_NANOVDB)
   endif()
 
+  if(WITH_CYCLES_SPPM_CAUSTICS)
+    list(APPEND sycl_compiler_flags
+      -DWITH_CYCLES_SPPM_CAUSTICS)
+  endif()
+
   if(WITH_CYCLES_EMBREE AND EMBREE_SYCL_SUPPORT)
     list(APPEND sycl_compiler_flags
       -DWITH_EMBREE

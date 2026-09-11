@@ -29,14 +29,21 @@ bool device_kernel_has_shading(DeviceKernel kernel)
 
 bool device_kernel_has_intersection(DeviceKernel kernel)
 {
-  return (kernel == DEVICE_KERNEL_INTEGRATOR_INTERSECT_CLOSEST ||
-          kernel == DEVICE_KERNEL_INTEGRATOR_INTERSECT_SHADOW ||
-          kernel == DEVICE_KERNEL_INTEGRATOR_INTERSECT_SUBSURFACE ||
-          kernel == DEVICE_KERNEL_INTEGRATOR_INTERSECT_VOLUME_STACK ||
-          kernel == DEVICE_KERNEL_INTEGRATOR_INTERSECT_DEDICATED_LIGHT ||
-          kernel == DEVICE_KERNEL_INTEGRATOR_INTERSECT_MNEE ||
-          kernel == DEVICE_KERNEL_INTEGRATOR_SHADE_SURFACE_RAYTRACE ||
-          kernel == DEVICE_KERNEL_PHOTON_TRACE);
+  const bool has_intersection =
+      (kernel == DEVICE_KERNEL_INTEGRATOR_INTERSECT_CLOSEST ||
+       kernel == DEVICE_KERNEL_INTEGRATOR_INTERSECT_SHADOW ||
+       kernel == DEVICE_KERNEL_INTEGRATOR_INTERSECT_SUBSURFACE ||
+       kernel == DEVICE_KERNEL_INTEGRATOR_INTERSECT_VOLUME_STACK ||
+       kernel == DEVICE_KERNEL_INTEGRATOR_INTERSECT_DEDICATED_LIGHT ||
+       kernel == DEVICE_KERNEL_INTEGRATOR_INTERSECT_MNEE ||
+       kernel == DEVICE_KERNEL_INTEGRATOR_SHADE_SURFACE_RAYTRACE);
+  /* === CyclesPlus: Photon Intersection Kernel Begin === */
+#ifdef WITH_CYCLES_SPPM_CAUSTICS
+  return has_intersection || kernel == DEVICE_KERNEL_PHOTON_TRACE;
+#else
+  return has_intersection;
+#endif  /* WITH_CYCLES_SPPM_CAUSTICS */
+  /* === CyclesPlus: Photon Intersection Kernel End === */
 }
 
 bool device_kernel_has_gpu_function(DeviceKernel kernel)
@@ -160,6 +167,8 @@ const char *device_kernel_as_string(DeviceKernel kernel)
     case DEVICE_KERNEL_ADAPTIVE_SAMPLING_CONVERGENCE_FILTER_Y:
       return "adaptive_sampling_filter_y";
 
+      /* === CyclesPlus: Photon Device Kernel Names Begin === */
+#ifdef WITH_CYCLES_SPPM_CAUSTICS
     /* Photon caustics SPPM gather (CyclesPlus). */
     case DEVICE_KERNEL_FILM_PHOTON_GATHER:
       return "film_photon_gather";
@@ -173,6 +182,8 @@ const char *device_kernel_as_string(DeviceKernel kernel)
       return "photon_bin_cursor_init";
     case DEVICE_KERNEL_PHOTON_BIN_SCATTER:
       return "photon_bin_scatter";
+#endif  /* WITH_CYCLES_SPPM_CAUSTICS */
+      /* === CyclesPlus: Photon Device Kernel Names End === */
 
     /* Denoising. */
     case DEVICE_KERNEL_FILTER_GUIDING_PREPROCESS:

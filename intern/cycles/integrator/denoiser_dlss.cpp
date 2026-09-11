@@ -3,6 +3,7 @@
  *
  * SPDX-License-Identifier: Apache-2.0 */
 
+/* === CyclesPlus: Personal DLSS Denoiser Implementation Begin === */
 #ifdef WITH_DLSS
 
 #  include "integrator/denoiser_dlss.h"
@@ -442,3 +443,4 @@ bool DLSSDenoiser::denoise_run(const DenoiseContext &context, const DenoisePass 
 CCL_NAMESPACE_END
 
 #endif
+/* === CyclesPlus: Personal DLSS Denoiser Implementation End === */

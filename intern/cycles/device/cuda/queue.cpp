@@ -9,7 +9,11 @@
 #  include "device/cuda/device_impl.h"
 #  include "device/cuda/graphics_interop.h"
 #  include "device/cuda/kernel.h"
+/* === CyclesPlus: CUDA Caustics Profiler Include Begin === */
+#ifdef WITH_CYCLES_SPPM_CAUSTICS
 #  include "util/caustics_profiler.h"
+#endif  /* WITH_CYCLES_SPPM_CAUSTICS */
+/* === CyclesPlus: CUDA Caustics Profiler Include End === */
 
 CCL_NAMESPACE_BEGIN
 
@@ -25,6 +29,8 @@ CUDADeviceQueue::CUDADeviceQueue(CUDADevice *device)
 CUDADeviceQueue::~CUDADeviceQueue()
 {
   const CUDAContextScope scope(cuda_device_);
+  /* === CyclesPlus: CUDA Caustics Profile Cleanup Begin === */
+#ifdef WITH_CYCLES_SPPM_CAUSTICS
   caustics_profile_collect();
   for (CausticsProfileEvent &event : caustics_profile_events_) {
     if (event.begin) {
@@ -34,9 +40,13 @@ CUDADeviceQueue::~CUDADeviceQueue()
       cuEventDestroy(event.end);
     }
   }
+#endif  /* WITH_CYCLES_SPPM_CAUSTICS */
+  /* === CyclesPlus: CUDA Caustics Profile Cleanup End === */
   cuStreamDestroy(cuda_stream_);
 }
 
+/* === CyclesPlus: CUDA Caustics Profile Implementation Begin === */
+#ifdef WITH_CYCLES_SPPM_CAUSTICS
 bool CUDADeviceQueue::caustics_profile_read(CausticsProfileEvent &event)
 {
   if (!event.pending) {
@@ -124,6 +134,8 @@ void CUDADeviceQueue::caustics_profile_collect()
     caustics_profile_read(event);
   }
 }
+#endif  /* WITH_CYCLES_SPPM_CAUSTICS */
+/* === CyclesPlus: CUDA Caustics Profile Implementation End === */
 
 int CUDADeviceQueue::num_concurrent_states(const size_t state_size) const
 {
@@ -162,7 +174,11 @@ int CUDADeviceQueue::num_concurrent_busy_states(const size_t /*state_size*/) con
 
 void CUDADeviceQueue::init_execution()
 {
+  /* === CyclesPlus: CUDA Context Init Profile Begin === */
+#ifdef WITH_CYCLES_SPPM_CAUSTICS
   CCL_PHOTON_PROFILE_SCOPE("gpu.context_init_wait", this);
+#endif  /* WITH_CYCLES_SPPM_CAUSTICS */
+  /* === CyclesPlus: CUDA Context Init Profile End === */
   /* Synchronize all textures and memory copies before executing task.
    * Use default stream (nullptr) since that's what we will synchronize
    * here to ensure all scene data is copied. */
@@ -224,7 +240,10 @@ bool CUDADeviceQueue::enqueue(DeviceKernel kernel,
   }
 
   /* Launch kernel. */
+  /* === CyclesPlus: CUDA Caustics Profile Launch Begin === */
+#ifdef WITH_CYCLES_SPPM_CAUSTICS
   caustics_profile_begin(kernel, work_size);
+#endif  /* WITH_CYCLES_SPPM_CAUSTICS */
   assert_success(cuLaunchKernel(cuda_kernel.function,
                                 num_blocks,
                                 1,
@@ -238,7 +257,10 @@ bool CUDADeviceQueue::enqueue(DeviceKernel kernel,
                                 nullptr),
                  "enqueue");
 
+#ifdef WITH_CYCLES_SPPM_CAUSTICS
   caustics_profile_end();
+#endif  /* WITH_CYCLES_SPPM_CAUSTICS */
+  /* === CyclesPlus: CUDA Caustics Profile Launch End === */
 
   debug_enqueue_end();
 
@@ -252,10 +274,14 @@ bool CUDADeviceQueue::synchronize()
   }
 
   const CUDAContextScope scope(cuda_device_);
+  /* === CyclesPlus: CUDA Queue Wait Profile Begin === */
+#ifdef WITH_CYCLES_SPPM_CAUSTICS
   PhotonProfileScope wait("gpu.queue_wait", this);
   assert_success(cuStreamSynchronize(cuda_stream_), "synchronize");
   wait.finish();
   caustics_profile_collect();
+#endif  /* WITH_CYCLES_SPPM_CAUSTICS */
+  /* === CyclesPlus: CUDA Queue Wait Profile End === */
 
   debug_synchronize();
 

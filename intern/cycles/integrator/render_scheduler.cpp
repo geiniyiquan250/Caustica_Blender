@@ -46,9 +46,13 @@ bool RenderScheduler::is_background() const
 void RenderScheduler::set_denoiser_params(const DenoiseParams &params)
 {
   denoiser_params_ = params;
+  /* === CyclesPlus: DLSS Interactive Resolution Begin === */
+#ifdef WITH_DLSS
   if (is_denoiser_interactive()) {
     state_.resolution_divider = pixel_size_;
   }
+#endif  /* WITH_DLSS */
+  /* === CyclesPlus: DLSS Interactive Resolution End === */
 }
 
 bool RenderScheduler::is_denoiser_gpu_used() const
@@ -93,9 +97,13 @@ void RenderScheduler::set_sample_params(const int num_samples,
 
 int RenderScheduler::get_num_samples() const
 {
+  /* === CyclesPlus: DLSS Interactive Sample Target Begin === */
+#ifdef WITH_DLSS
   if (is_denoiser_interactive()) {
     return Integrator::MAX_SAMPLES;
   }
+#endif  /* WITH_DLSS */
+  /* === CyclesPlus: DLSS Interactive Sample Target End === */
   return num_samples_;
 }
 
@@ -351,9 +359,13 @@ RenderWork RenderScheduler::get_render_work()
   if (denoiser_params_.use) {
     render_work.resolution_divider *= denoiser_params_.upscale_factor;
   }
+  /* === CyclesPlus: DLSS Render Work Reset Begin === */
+#ifdef WITH_DLSS
   if (is_denoiser_interactive()) {
     state_.num_rendered_samples = 0;
   }
+#endif  /* WITH_DLSS */
+  /* === CyclesPlus: DLSS Render Work Reset End === */
 
   render_work.path_trace.start_sample = get_start_sample_to_path_trace();
   render_work.path_trace.num_samples = get_num_samples_to_path_trace();
@@ -968,9 +980,15 @@ int RenderScheduler::get_num_samples_to_path_trace() const
                                 min(num_samples_to_occupy, max_num_samples_to_render));
   }
 
+  /* === CyclesPlus: DLSS Interactive Sample Limit Begin === */
+#ifdef WITH_DLSS
   if (limit_samples_per_update_ && !is_denoiser_interactive()) {
+#else
+  if (limit_samples_per_update_) {
+#endif  /* WITH_DLSS */
     num_samples_to_render = min(limit_samples_per_update_, num_samples_to_render);
   }
+  /* === CyclesPlus: DLSS Interactive Sample Limit End === */
 
   /* If adaptive sampling is not use, render as many samples per update as possible, keeping
    * the device fully occupied, without much overhead of display updates. */
@@ -1054,9 +1072,13 @@ bool RenderScheduler::work_need_denoise(bool &delayed, bool &ready_to_display)
 
   /* Viewport render. */
 
+  /* === CyclesPlus: DLSS Interactive Denoise Begin === */
+#ifdef WITH_DLSS
   if (is_denoiser_interactive()) {
     return true;
   }
+#endif  /* WITH_DLSS */
+  /* === CyclesPlus: DLSS Interactive Denoise End === */
 
   /* Navigation might render multiple samples at a lower resolution. Those are not to be counted as
    * final samples. */
@@ -1165,10 +1187,14 @@ bool RenderScheduler::work_need_rebalance()
 
 void RenderScheduler::update_start_resolution_divider()
 {
+  /* === CyclesPlus: DLSS Start Resolution Divider Begin === */
+#ifdef WITH_DLSS
   if (is_denoiser_interactive()) {
     start_resolution_divider_ = 1;
     return;
   }
+#endif  /* WITH_DLSS */
+  /* === CyclesPlus: DLSS Start Resolution Divider End === */
   if (default_start_resolution_divider_ == 0) {
     return;
   }
@@ -1250,10 +1276,14 @@ bool RenderScheduler::is_denoise_active_during_update() const
   return true;
 }
 
+/* === CyclesPlus: DLSS Interactive Query Implementation Begin === */
+#ifdef WITH_DLSS
 bool RenderScheduler::is_denoiser_interactive() const
 {
   return denoiser_params_.use && denoiser_params_.type == DENOISER_DLSS;
 }
+#endif  /* WITH_DLSS */
+/* === CyclesPlus: DLSS Interactive Query Implementation End === */
 
 bool RenderScheduler::work_is_usable_for_first_render_estimation(const RenderWork &render_work)
 {

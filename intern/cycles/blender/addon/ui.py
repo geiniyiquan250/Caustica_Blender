@@ -154,8 +154,10 @@ def show_preview_denoise_active(context):
     if cscene.preview_denoiser == 'OPTIX':
         return has_optixdenoiser_gpu_devices(context)
 
+    # === CyclesPlus: DLSS Preview Denoiser Availability Begin ===
     if cscene.preview_denoiser == 'DLSS':
         return has_dlss_gpu_devices(context)
+    # === CyclesPlus: DLSS Preview Denoiser Availability End ===
 
     # OIDN is always available, thanks to CPU support
     return True
@@ -193,8 +195,10 @@ def has_oidn_gpu_devices(context):
     return context.preferences.addons[__package__].preferences.has_oidn_gpu_devices()
 
 
+# === CyclesPlus: DLSS GPU Helper Begin ===
 def has_dlss_gpu_devices(context):
     return context.preferences.addons[__package__].preferences.has_dlss_gpu_devices()
+# === CyclesPlus: DLSS GPU Helper End ===
 
 
 def has_optixdenoiser_gpu_devices(context):
@@ -276,10 +280,12 @@ class CYCLES_RENDER_PT_sampling_viewport_denoise(CyclesButtonsPanel, Panel):
         sub.active = show_preview_denoise_active(context)
         sub.prop(cscene, "preview_denoiser", text="Denoiser")
 
+        # === CyclesPlus: DLSS Viewport Controls Begin ===
         effective_preview_denoiser = get_effective_preview_denoiser(context, has_oidn_gpu_devices(context))
         if effective_preview_denoiser == 'DLSS':
             col.prop(cscene, "preview_denoising_upscale_quality", text="Upscale Mode")
             return
+        # === CyclesPlus: DLSS Viewport Controls End ===
 
         col.prop(cscene, "preview_denoising_input_passes", text="Passes")
 
@@ -678,6 +684,7 @@ class CYCLES_RENDER_PT_light_paths_caustics(CyclesButtonsPanel, Panel):
         cscene = scene.cycles
 
         col = layout.column()
+        # === CyclesPlus: Photon Caustics UI Begin ===
         col.prop(cscene, "blur_glossy", text="光泽模糊")
         col = layout.column(heading="焦散", align=True)
         # Reflective/Refractive apply to both solvers: they filter which
@@ -719,6 +726,7 @@ class CYCLES_RENDER_PT_light_paths_caustics(CyclesButtonsPanel, Panel):
                     )
                 if len(report) > n_max:
                     bcol.label(text="... and %d more" % (len(report) - n_max))
+        # === CyclesPlus: Photon Caustics UI End ===
 
 
 class CYCLES_RENDER_PT_light_paths_fast_gi(CyclesButtonsPanel, Panel):
@@ -914,6 +922,7 @@ class CYCLES_RENDER_PT_performance_threads(CyclesButtonsPanel, Panel):
         col = layout.column()
 
         col.prop(rd, "threads_mode")
+        # === CyclesPlus: Photon Caustics Pass Toggle Begin ===
         sub = col.column(align=True)
         sub.enabled = rd.threads_mode == 'FIXED'
         sub.prop(rd, "threads")
@@ -1200,6 +1209,7 @@ class CYCLES_RENDER_PT_passes_light(CyclesButtonsPanel, Panel):
         sub = col.column(align=True)
         sub.active = context.scene.cycles.use_photon_caustics
         sub.prop(cycles_view_layer, "use_pass_caustics", text="Caustics")
+        # === CyclesPlus: Photon Caustics Pass Toggle End ===
 
 
 class CYCLES_RENDER_PT_passes_crypto(CyclesButtonsPanel, ViewLayerCryptomattePanelHelper, Panel):
@@ -1732,8 +1742,10 @@ class CYCLES_LIGHT_PT_settings(CyclesButtonsPanel, Panel):
         sub.prop(clamp, "use_multiple_importance_sampling", text="Multiple Importance")
         if use_mnee(context):
             sub.prop(clamp, "is_caustics_light", text="Shadow Caustics")
+        # === CyclesPlus: Photon Light Cast Toggle Begin ===
         if context.scene.cycles.use_photon_caustics:
             sub.prop(clamp, "photon_cast", text="Photon Caustics")
+        # === CyclesPlus: Photon Light Cast Toggle End ===
 
         if light.type == 'AREA':
             col.prop(clamp, "is_portal", text="Portal")
@@ -1933,8 +1945,10 @@ class CYCLES_WORLD_PT_settings_surface(CyclesButtonsPanel, Panel):
         sub.prop(cworld, "max_bounces")
         sub.prop(cworld, "is_caustics_light", text="Shadow Caustics")
         sub.prop(cworld, "use_shadows", text="Cast Shadow")
+        # === CyclesPlus: Photon World Cast Toggle Begin ===
         if context.scene.cycles.use_photon_caustics:
             sub.prop(cworld, "photon_cast", text="Photon Caustics")
+        # === CyclesPlus: Photon World Cast Toggle End ===
 
 
 class CYCLES_WORLD_PT_settings_volume(CyclesButtonsPanel, Panel):
@@ -2112,12 +2126,14 @@ class CYCLES_MATERIAL_PT_settings_surface(CyclesButtonsPanel, Panel):
         col.prop(mat, "use_transparent_shadow")
         col.prop(cmat, "use_bump_map_correction")
 
+        # === CyclesPlus: Photon Material Cast Toggle Begin ===
         # CyclesPlus: per-material caster flag, only meaningful when photon
         # caustics run in selected-casters mode.
         if cscene is not None and cscene.use_photon_caustics:
             sub = col.column()
             sub.active = cscene.photon_caustics_casters == 'SELECTED'
             sub.prop(cmat, "photon_cast")
+        # === CyclesPlus: Photon Material Cast Toggle End ===
 
     def draw(self, context):
         self.draw_shared(self, context.material, context.scene.cycles)

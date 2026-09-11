@@ -5,7 +5,11 @@
 #pragma once
 
 #include "kernel/globals.h"
+/* === CyclesPlus: Glass Dispersion Spectrum Include Begin === */
+#ifdef WITH_CYCLES_SPPM_CAUSTICS
 #include "kernel/tables.h"
+#endif  /* WITH_CYCLES_SPPM_CAUSTICS */
+/* === CyclesPlus: Glass Dispersion Spectrum Include End === */
 
 #include "util/types_spectrum.h"
 
@@ -52,7 +56,8 @@ ccl_device float spectrum_to_gray(KernelGlobals kg, Spectrum c)
   return linear_rgb_to_gray(kg, spectrum_to_rgb(c));
 }
 
-#ifdef __SPECTRAL__
+/* === CyclesPlus: Glass Dispersion Color Functions Begin === */
+#if defined(WITH_CYCLES_SPPM_CAUSTICS) && defined(__SPECTRAL__)
 /* Given a wavelength, convert it to rgb in the working color space, assuming D65 illuminant.
  * [Metameric: Spectral Uplifting via Controllable Color Constraints]
  * (https://markvanderuit.nl/files/2023-07-23-paper-metameric/metameric-paper.pdf)
@@ -94,6 +99,7 @@ ccl_device_inline float sample_wavelength(float rand, ccl_private float *prob = 
   const float wavelength = -fast_logf(1.0f / rand - 1.0f) / a + x0;
   return clamp(wavelength, WAVELENGTH_CIE_MIN, WAVELENGTH_CIE_MAX);
 }
-#endif
+#endif  /* WITH_CYCLES_SPPM_CAUSTICS && __SPECTRAL__ */
+/* === CyclesPlus: Glass Dispersion Color Functions End === */
 
 CCL_NAMESPACE_END

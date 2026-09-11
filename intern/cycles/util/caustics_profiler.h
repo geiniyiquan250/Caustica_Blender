@@ -1,6 +1,7 @@
 /* SPDX-FileCopyrightText: 2026 CyclesPlus
  *
  * SPDX-License-Identifier: Apache-2.0 */
+/* === CyclesPlus: Personal Caustics Profiler Header Begin === */
 #pragma once
 
 #include <cstdlib>
@@ -72,3 +73,4 @@ CCL_NAMESPACE_END
 #define CCL_PHOTON_PROFILE_JOIN(a, b) CCL_PHOTON_PROFILE_JOIN_IMPL(a, b)
 #define CCL_PHOTON_PROFILE_SCOPE(...) \
   PhotonProfileScope CCL_PHOTON_PROFILE_JOIN(photon_profile_scope_, __LINE__)(__VA_ARGS__)
+/* === CyclesPlus: Personal Caustics Profiler Header End === */

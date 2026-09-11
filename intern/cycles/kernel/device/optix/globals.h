@@ -35,6 +35,8 @@ struct KernelParamsOptiX {
   int num_tiles;
   int max_tile_work_size;
 
+  /* === CyclesPlus: OptiX Photon Launch Arguments Begin === */
+#ifdef WITH_CYCLES_SPPM_CAUSTICS
   /* Photon tracing arguments (CyclesPlus, __raygen__kernel_optix_photon_trace). */
   float4 *photon_out_pos;
   float4 *photon_out_beam_start;
@@ -52,6 +54,8 @@ struct KernelParamsOptiX {
   int photon_debug_mode;
   int photon_out_capacity;
   float *photon_target_yield;
+#endif  /* WITH_CYCLES_SPPM_CAUSTICS */
+  /* === CyclesPlus: OptiX Photon Launch Arguments End === */
 
   /* Global scene data and textures */
   KernelData data;

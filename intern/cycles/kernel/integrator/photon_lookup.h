@@ -2,6 +2,7 @@
  *
  * SPDX-License-Identifier: Apache-2.0 */
 
+/* === CyclesPlus: Personal Photon Lookup Begin === */
 /* Photon caustics: kernel-side photon gather. Reads the photon grid from the
  * standard kernel data arrays, so it runs unchanged on CPU and GPU devices.
  * Grid parameters live in kernel_data.integrator (updated per progressive
@@ -349,3 +350,4 @@ ccl_device float3 photon_grid_beam_integral(KernelGlobals kg,
 }
 
 CCL_NAMESPACE_END
+/* === CyclesPlus: Personal Photon Lookup End === */

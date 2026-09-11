@@ -3,6 +3,7 @@
  *
  * SPDX-License-Identifier: Apache-2.0 */
 
+/* === CyclesPlus: Personal DLSS Denoiser Header Begin === */
 #pragma once
 
 #ifdef WITH_DLSS
@@ -64,4 +65,5 @@ class DLSSDenoiser : public DenoiserGPU {
 CCL_NAMESPACE_END
 
 #endif
+/* === CyclesPlus: Personal DLSS Denoiser Header End === */
 

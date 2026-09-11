@@ -21,9 +21,15 @@
 #include "kernel/integrator/intersect_volume_stack.h"
 #include "kernel/integrator/intersect_dedicated_light.h"
 
+/* === CyclesPlus: OptiX Photon Raygen Include Begin === */
+#ifdef WITH_CYCLES_SPPM_CAUSTICS
 #include "kernel/integrator/photon_trace.h"  /* CyclesPlus */
+#endif  /* WITH_CYCLES_SPPM_CAUSTICS */
+/* === CyclesPlus: OptiX Photon Raygen Include End === */
 // clang-format on
 
+/* === CyclesPlus: OptiX Photon Raygen Begin === */
+#ifdef WITH_CYCLES_SPPM_CAUSTICS
 /* Photon caustics tracing (CyclesPlus): one launch index = one photon.
  * All arguments arrive via kernel_params (staged in OptiXDeviceQueue). */
 extern "C" __global__ void __raygen__kernel_optix_photon_trace()
@@ -48,6 +54,8 @@ extern "C" __global__ void __raygen__kernel_optix_photon_trace()
       kernel_params.photon_out_capacity,
       kernel_params.photon_target_yield);
 }
+#endif  /* WITH_CYCLES_SPPM_CAUSTICS */
+/* === CyclesPlus: OptiX Photon Raygen End === */
 
 extern "C" __global__ void __raygen__kernel_optix_integrator_intersect_closest()
 {

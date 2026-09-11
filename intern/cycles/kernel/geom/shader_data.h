@@ -16,7 +16,11 @@
 #include "kernel/geom/point_intersect.h"
 #include "kernel/geom/triangle_intersect.h"
 
+/* === CyclesPlus: Glass Dispersion Sampling Include Begin === */
+#ifdef WITH_CYCLES_SPPM_CAUSTICS
 #include "kernel/sample/pattern.h"
+#endif  /* WITH_CYCLES_SPPM_CAUSTICS */
+/* === CyclesPlus: Glass Dispersion Sampling Include End === */
 
 #include "kernel/util/differential.h"
 
@@ -64,8 +68,12 @@ ccl_device_inline
   sd->object_flag = kernel_data_fetch(object_flag, sd->object);
   sd->prim = isect->prim;
   sd->flag = 0;
+  /* === CyclesPlus: Glass Dispersion Shader Flags Begin === */
+#ifdef WITH_CYCLES_SPPM_CAUSTICS
   sd->runtime_flag = 0;
   sd->shader_flag = 0;
+#endif  /* WITH_CYCLES_SPPM_CAUSTICS */
+  /* === CyclesPlus: Glass Dispersion Shader Flags End === */
 
   /* Read matrices and time. */
   sd->time = ray->time;
@@ -114,17 +122,27 @@ ccl_device_inline
     }
   }
 
+  /* === CyclesPlus: Glass Dispersion Shader Flags Begin === */
+#ifdef WITH_CYCLES_SPPM_CAUSTICS
   const int shader_flags = kernel_data_fetch(shaders, (sd->shader & SHADER_MASK)).flags;
   sd->flag = shader_flags & ~SD_REQUIRES_WAVELENGTH;
   sd->runtime_flag = sd->flag;
   sd->shader_flag = shader_flags;
+#else
+  sd->flag = kernel_data_fetch(shaders, (sd->shader & SHADER_MASK)).flags;
+#endif  /* WITH_CYCLES_SPPM_CAUSTICS */
+  /* === CyclesPlus: Glass Dispersion Shader Flags End === */
 
   /* backfacing test */
   const bool backfacing = (dot(sd->Ng, sd->wi) < 0.0f);
 
   if (backfacing) {
     sd->flag |= SD_BACKFACING;
+    /* === CyclesPlus: Glass Dispersion Backfacing Flag Begin === */
+#ifdef WITH_CYCLES_SPPM_CAUSTICS
     sd->runtime_flag |= SR_BACKFACING;
+#endif  /* WITH_CYCLES_SPPM_CAUSTICS */
+    /* === CyclesPlus: Glass Dispersion Backfacing Flag End === */
     sd->Ng = -sd->Ng;
     sd->N = -sd->N;
 #ifdef __DPDU__
@@ -183,10 +201,16 @@ ccl_device_inline void shader_setup_from_sample(KernelGlobals kg,
   sd->time = time;
   sd->ray_length = t;
 
+  /* === CyclesPlus: Glass Dispersion Shader Flags Begin === */
+#ifdef WITH_CYCLES_SPPM_CAUSTICS
   const int shader_flags = kernel_data_fetch(shaders, (sd->shader & SHADER_MASK)).flags;
   sd->flag = shader_flags & ~SD_REQUIRES_WAVELENGTH;
   sd->runtime_flag = sd->flag;
   sd->shader_flag = shader_flags;
+#else
+  sd->flag = kernel_data_fetch(shaders, (sd->shader & SHADER_MASK)).flags;
+#endif  /* WITH_CYCLES_SPPM_CAUSTICS */
+  /* === CyclesPlus: Glass Dispersion Shader Flags End === */
   sd->object_flag = 0;
   if (sd->object != OBJECT_NONE) {
     sd->object_flag |= kernel_data_fetch(object_flag, sd->object);
@@ -244,7 +268,11 @@ ccl_device_inline void shader_setup_from_sample(KernelGlobals kg,
 
     if (backfacing) {
       sd->flag |= SD_BACKFACING;
+      /* === CyclesPlus: Glass Dispersion Backfacing Flag Begin === */
+#ifdef WITH_CYCLES_SPPM_CAUSTICS
       sd->runtime_flag |= SR_BACKFACING;
+#endif  /* WITH_CYCLES_SPPM_CAUSTICS */
+      /* === CyclesPlus: Glass Dispersion Backfacing Flag End === */
       sd->Ng = -sd->Ng;
       sd->N = -sd->N;
 #ifdef __DPDU__
@@ -333,10 +361,16 @@ ccl_device void shader_setup_from_curve(KernelGlobals kg,
 
   /* Shader */
   sd->shader = kernel_data_fetch(curves, prim).shader_id;
+  /* === CyclesPlus: Glass Dispersion Shader Flags Begin === */
+#ifdef WITH_CYCLES_SPPM_CAUSTICS
   const int shader_flags = kernel_data_fetch(shaders, (sd->shader & SHADER_MASK)).flags;
   sd->flag = shader_flags & ~SD_REQUIRES_WAVELENGTH;
   sd->runtime_flag = sd->flag;
   sd->shader_flag = shader_flags;
+#else
+  sd->flag = kernel_data_fetch(shaders, (sd->shader & SHADER_MASK)).flags;
+#endif  /* WITH_CYCLES_SPPM_CAUSTICS */
+  /* === CyclesPlus: Glass Dispersion Shader Flags End === */
 
   /* Object */
   sd->object = object;
@@ -415,10 +449,16 @@ ccl_device_inline void shader_setup_from_background(KernelGlobals kg,
   sd->Ng = -ray_D;
   sd->wi = -ray_D;
   sd->shader = kernel_data.background.surface_shader;
+  /* === CyclesPlus: Glass Dispersion Shader Flags Begin === */
+#ifdef WITH_CYCLES_SPPM_CAUSTICS
   const int shader_flags = kernel_data_fetch(shaders, (sd->shader & SHADER_MASK)).flags;
   sd->flag = shader_flags & ~SD_REQUIRES_WAVELENGTH;
   sd->runtime_flag = sd->flag;
   sd->shader_flag = shader_flags;
+#else
+  sd->flag = kernel_data_fetch(shaders, (sd->shader & SHADER_MASK)).flags;
+#endif  /* WITH_CYCLES_SPPM_CAUSTICS */
+  /* === CyclesPlus: Glass Dispersion Shader Flags End === */
   sd->object_flag = 0;
   sd->time = ray_time;
   sd->ray_length = FLT_MAX;
@@ -460,8 +500,12 @@ ccl_device_inline void shader_setup_from_volume(ccl_private ShaderData *ccl_rest
   sd->wi = -ray->D;
   sd->shader = SHADER_NONE;
   sd->flag = 0;
+  /* === CyclesPlus: Glass Dispersion Shader Flags Begin === */
+#ifdef WITH_CYCLES_SPPM_CAUSTICS
   sd->runtime_flag = 0;
   sd->shader_flag = 0;
+#endif  /* WITH_CYCLES_SPPM_CAUSTICS */
+  /* === CyclesPlus: Glass Dispersion Shader Flags End === */
   sd->object_flag = 0;
   sd->time = ray->time;
   sd->ray_length = 0.0f; /* todo: can we set this to some useful value? */
@@ -493,7 +537,8 @@ ccl_device_inline void shader_setup_from_volume(ccl_private ShaderData *ccl_rest
 }
 #endif /* __VOLUME__ */
 
-#ifdef __SPECTRAL__
+/* === CyclesPlus: Glass Dispersion Wavelength Setup Begin === */
+#if defined(WITH_CYCLES_SPPM_CAUSTICS) && defined(__SPECTRAL__)
 /* If shader requires, draw a random number for sampling a wavelength. */
 ccl_device_inline void shader_setup_wavelength(KernelGlobals kg,
                                                ccl_private ShaderData *ccl_restrict sd,
@@ -506,6 +551,7 @@ ccl_device_inline void shader_setup_wavelength(KernelGlobals kg,
     sd->rand_wavelength = path_rng_1D(kg, pixel, sample, PRNG_BOUNCE_NUM + PRNG_WAVELENGTH);
   }
 }
-#endif
+#endif  /* WITH_CYCLES_SPPM_CAUSTICS && __SPECTRAL__ */
+/* === CyclesPlus: Glass Dispersion Wavelength Setup End === */
 
 CCL_NAMESPACE_END

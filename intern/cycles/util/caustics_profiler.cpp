@@ -2,6 +2,7 @@
  *
  * SPDX-License-Identifier: Apache-2.0 */
 
+/* === CyclesPlus: Personal Caustics Profiler Implementation Begin === */
 #include "util/caustics_profiler.h"
 
 #include <algorithm>
@@ -151,3 +152,4 @@ void photon_profile_flush()
 }
 
 CCL_NAMESPACE_END
+/* === CyclesPlus: Personal Caustics Profiler Implementation End === */

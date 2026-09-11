@@ -3,7 +3,11 @@
  * SPDX-License-Identifier: Apache-2.0 */
 
 #include "integrator/path_trace_work_cpu.h"
+/* === CyclesPlus: Photon CPU Profiler Include Begin === */
+#ifdef WITH_CYCLES_SPPM_CAUSTICS
 #include "util/caustics_profiler.h"
+#endif  /* WITH_CYCLES_SPPM_CAUSTICS */
+/* === CyclesPlus: Photon CPU Profiler Include End === */
 
 #include "device/cpu/kernel.h"
 #include "device/device.h"
@@ -304,6 +308,8 @@ int PathTraceWorkCPU::adaptive_sampling_converge_filter_count_active(const float
   return num_active_pixels;
 }
 
+/* === CyclesPlus: Photon CPU Gather Implementation Begin === */
+#ifdef WITH_CYCLES_SPPM_CAUSTICS
 void PathTraceWorkCPU::photon_gather(const int num_samples, const int consume)
 {
   CCL_PHOTON_PROFILE_SCOPE("photon.cpu_gather_and_smooth", this, consume);
@@ -352,6 +358,8 @@ void PathTraceWorkCPU::photon_gather(const int num_samples, const int consume)
     });
   });
 }
+#endif  /* WITH_CYCLES_SPPM_CAUSTICS */
+/* === CyclesPlus: Photon CPU Gather Implementation End === */
 
 void PathTraceWorkCPU::cryptomatte_postproces()
 {

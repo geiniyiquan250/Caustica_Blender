@@ -100,6 +100,8 @@ class PathTrace {
    * Use to setup the guiding structures before each rendering iteration. */
   void set_guiding_params(const GuidingParams &params, const bool reset);
 
+  /* === CyclesPlus: Photon Path Trace Interface Begin === */
+#ifdef WITH_CYCLES_SPPM_CAUSTICS
   /* Photon caustics: set the photon grid consumed by the render kernels.
    * Pass null to disable. The grid must stay alive across the render.
    * Every newly published generation is consumed by one SPPM gather over
@@ -123,6 +125,8 @@ class PathTrace {
       photon_gather_skip_ = 0;
     }
   }
+#endif  /* WITH_CYCLES_SPPM_CAUSTICS */
+  /* === CyclesPlus: Photon Path Trace Interface End === */
 
   /* Sets output driver for render buffer output. */
   void set_output_driver(unique_ptr<OutputDriver> driver);
@@ -235,7 +239,11 @@ class PathTrace {
    * of rendering. */
   void init_render_buffers(const RenderWork &render_work);
   void path_trace(RenderWork &render_work);
+  /* === CyclesPlus: Photon Gather Method Begin === */
+#ifdef WITH_CYCLES_SPPM_CAUSTICS
   void photon_gather_after_work();
+#endif  /* WITH_CYCLES_SPPM_CAUSTICS */
+  /* === CyclesPlus: Photon Gather Method End === */
   void adaptive_sample(RenderWork &render_work);
   void denoise(const RenderWork &render_work);
   void denoise_volume_guiding_buffers(const RenderWork &render_work, const bool has_volume);
@@ -318,6 +326,8 @@ class PathTrace {
   /* Denoiser device descriptor which holds the denoised big tile for multi-device workloads. */
   unique_ptr<PathTraceWork> big_tile_denoise_work_;
 
+  /* === CyclesPlus: Photon Path Trace State Begin === */
+#ifdef WITH_CYCLES_SPPM_CAUSTICS
   /* Photon caustics: generation of the last uploaded photon batch (0 = none)
    * and whether the uploaded batch still awaits its consuming gather (runs
    * after the next render work). */
@@ -326,6 +336,8 @@ class PathTrace {
   bool photon_navigating_ = false;
   uint photon_gather_skip_ = 0;
   uint photon_volume_gather_skip_ = 0;
+#endif  /* WITH_CYCLES_SPPM_CAUSTICS */
+  /* === CyclesPlus: Photon Path Trace State End === */
 
 #if defined(WITH_PATH_GUIDING)
   /* Guiding related attributes */

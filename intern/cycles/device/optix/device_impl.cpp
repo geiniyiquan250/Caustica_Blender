@@ -53,8 +53,13 @@ OptiXDevice::OptiXDevice(const DeviceInfo &info, Stats &stats, Profiler &profile
       osl_colorsystem(this, "osl_colorsystem", MEM_READ_ONLY),
 #  endif
       sbt_data(this, "__sbt", MEM_READ_ONLY),
-      launch_params(this, "kernel_params", false),
+      launch_params(this, "kernel_params", false)
+      /* === CyclesPlus: OptiX Photon Launch Params Init Begin === */
+#ifdef WITH_CYCLES_SPPM_CAUSTICS
+      ,
       photon_launch_params(this, "photon_kernel_params", false)
+#endif  /* WITH_CYCLES_SPPM_CAUSTICS */
+      /* === CyclesPlus: OptiX Photon Launch Params Init End === */
 {
   /* Make the CUDA context current. */
   if (!cuContext) {
@@ -97,8 +102,12 @@ OptiXDevice::OptiXDevice(const DeviceInfo &info, Stats &stats, Profiler &profile
 
   /* Allocate launch parameter buffer memory on device. */
   launch_params.alloc_to_device(1);
+  /* === CyclesPlus: OptiX Photon Launch Params Allocation Begin === */
+#ifdef WITH_CYCLES_SPPM_CAUSTICS
   photon_launch_params.data_elements = sizeof(KernelParamsOptiX);
   photon_launch_params.alloc_to_device(1);
+#endif  /* WITH_CYCLES_SPPM_CAUSTICS */
+  /* === CyclesPlus: OptiX Photon Launch Params Allocation End === */
 }
 
 OptiXDevice::~OptiXDevice()
@@ -111,7 +120,11 @@ OptiXDevice::~OptiXDevice()
   sbt_data.free();
   image_info.free();
   launch_params.free();
+  /* === CyclesPlus: OptiX Photon Launch Params Free Begin === */
+#ifdef WITH_CYCLES_SPPM_CAUSTICS
   photon_launch_params.free();
+#endif  /* WITH_CYCLES_SPPM_CAUSTICS */
+  /* === CyclesPlus: OptiX Photon Launch Params Free End === */
 
   /* Unload modules. */
   if (optix_module != nullptr) {
@@ -565,11 +578,15 @@ bool OptiXDevice::load_kernels(const uint kernel_features)
   group_descs[PG_RGEN_INTERSECT_DEDICATED_LIGHT].raygen.module = optix_module;
   group_descs[PG_RGEN_INTERSECT_DEDICATED_LIGHT].raygen.entryFunctionName =
       "__raygen__kernel_optix_integrator_intersect_dedicated_light";
+  /* === CyclesPlus: OptiX Photon Program Group Setup Begin === */
+#ifdef WITH_CYCLES_SPPM_CAUSTICS
   /* Photon caustics tracing (CyclesPlus). */
   group_descs[PG_RGEN_PHOTON_TRACE].kind = OPTIX_PROGRAM_GROUP_KIND_RAYGEN;
   group_descs[PG_RGEN_PHOTON_TRACE].raygen.module = optix_module;
   group_descs[PG_RGEN_PHOTON_TRACE].raygen.entryFunctionName =
       "__raygen__kernel_optix_photon_trace";
+#endif  /* WITH_CYCLES_SPPM_CAUSTICS */
+  /* === CyclesPlus: OptiX Photon Program Group Setup End === */
   group_descs[PG_MISS].kind = OPTIX_PROGRAM_GROUP_KIND_MISS;
   group_descs[PG_MISS].miss.module = optix_module;
   group_descs[PG_MISS].miss.entryFunctionName = "__miss__kernel_optix_miss";
@@ -917,6 +934,8 @@ bool OptiXDevice::load_kernels(const uint kernel_features)
         pipelines[PIP_INTERSECT], 0, 0, css, pipeline_options.usesMotionBlur ? 3 : 2));
   }
 
+  /* === CyclesPlus: OptiX Dedicated Photon Pipeline Begin === */
+#ifdef WITH_CYCLES_SPPM_CAUSTICS
   { /* CyclesPlus: dedicated photon pipeline - see the PIP_PHOTON note in
      * device_impl.h. Same modules and hit/miss groups as the intersect
      * pipeline, but a pipeline OBJECT of its own, so concurrent photon and
@@ -975,6 +994,8 @@ bool OptiXDevice::load_kernels(const uint kernel_features)
     optix_assert(optixPipelineSetStackSize(
         pipelines[PIP_PHOTON], 0, 0, css, pipeline_options.usesMotionBlur ? 3 : 2));
   }
+#endif  /* WITH_CYCLES_SPPM_CAUSTICS */
+  /* === CyclesPlus: OptiX Dedicated Photon Pipeline End === */
 
   return !have_error();
 }

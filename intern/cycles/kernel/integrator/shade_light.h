@@ -14,7 +14,11 @@
 #include "kernel/geom/object.h"
 #include "kernel/types.h"
 
+/* === CyclesPlus: Photon Light Integration Include Begin === */
+#ifdef WITH_CYCLES_SPPM_CAUSTICS
 #include "kernel/svm/photon_caustics.h"
+#endif  /* WITH_CYCLES_SPPM_CAUSTICS */
+/* === CyclesPlus: Photon Light Integration Include End === */
 
 CCL_NAMESPACE_BEGIN
 
@@ -37,10 +41,14 @@ ccl_device_inline ShaderEvalResult integrate_light_forward(
   /* Advance ray to new start distance. */
   INTEGRATOR_STATE_WRITE(state, ray, tmin) = intersection_t_offset(isect.t);
 
+  /* === CyclesPlus: Photon Light Path Ownership Begin === */
+#ifdef WITH_CYCLES_SPPM_CAUSTICS
   /* CyclesPlus: the photon map already carries this light along this chain. */
   if (photon_caustic_path_owned(kg, path_flag)) {
     return SHADER_EVAL_EMPTY;
   }
+#endif  /* WITH_CYCLES_SPPM_CAUSTICS */
+  /* === CyclesPlus: Photon Light Path Ownership End === */
 
   const LightEval light_eval = light_eval_from_intersection(
       kg, &isect, ray_P, ray_D, N, path_flag);

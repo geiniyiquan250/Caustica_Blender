@@ -98,6 +98,8 @@ bool DenoiserGPU::denoise_buffer(const BufferParams &buffer_params,
     if (!denoise_pass(context, PASS_SHADOW_CATCHER_MATTE)) {
       return false;
     }
+    /* === CyclesPlus: Photon Caustics GPU Denoise Begin === */
+#ifdef WITH_CYCLES_SPPM_CAUSTICS
     /* Photon caustics (CyclesPlus). The caustic already carries the receiving
      * surface's albedo (the SPPM measurement point stores throughput *
      * albedo/pi), so it belongs with the real-albedo group, like combined.
@@ -106,6 +108,8 @@ bool DenoiserGPU::denoise_buffer(const BufferParams &buffer_params,
     if (!denoise_pass(context, PASS_CAUSTICS)) {
       return false;
     }
+#endif  /* WITH_CYCLES_SPPM_CAUSTICS */
+    /* === CyclesPlus: Photon Caustics GPU Denoise End === */
 
     /* Passes which do not need albedo and hence if real is present it needs to become fake. */
     if (!denoise_pass(context, PASS_SHADOW_CATCHER)) {
@@ -146,11 +150,13 @@ bool DenoiserGPU::denoise_filter_guiding_preprocess(DenoiseContext &context)
 {
   const BufferParams &buffer_params = context.buffer_params;
 
+  /* === CyclesPlus: DLSS Guiding Preprocess Allocation Begin === */
   if (context.use_guiding_passes && !context.guiding_params.device_pointer) {
     context.guiding_buffer.alloc_to_device(buffer_params.width * buffer_params.height *
                                            context.guiding_params.pass_stride);
     context.guiding_params.device_pointer = context.guiding_buffer.device_pointer;
   }
+  /* === CyclesPlus: DLSS Guiding Preprocess Allocation End === */
 
   const int work_size = buffer_params.width * buffer_params.height;
 
@@ -376,11 +382,13 @@ bool DenoiserGPU::denoise_filter_guiding_set_fake_albedo(DenoiseContext &context
 {
   const BufferParams &buffer_params = context.buffer_params;
 
+  /* === CyclesPlus: DLSS Fake Albedo Allocation Begin === */
   if (context.use_guiding_passes && !context.guiding_params.device_pointer) {
     context.guiding_buffer.alloc_to_device(buffer_params.width * buffer_params.height *
                                            context.guiding_params.pass_stride);
     context.guiding_params.device_pointer = context.guiding_buffer.device_pointer;
   }
+  /* === CyclesPlus: DLSS Fake Albedo Allocation End === */
 
   const int work_size = buffer_params.width * buffer_params.height;
 

@@ -118,12 +118,16 @@ NODE_DEFINE(Integrator)
 
   SOCKET_BOOLEAN(caustics_reflective, "Reflective Caustics", true);
   SOCKET_BOOLEAN(caustics_refractive, "Refractive Caustics", true);
+  /* === CyclesPlus: Photon Caustics Sockets Begin === */
+#ifdef WITH_CYCLES_SPPM_CAUSTICS
   SOCKET_BOOLEAN(use_photon_caustics, "Photon Caustics", false);
   SOCKET_BOOLEAN(use_photon_volume_caustics, "Photon Volume Caustics", false);
   SOCKET_INT(photon_caustics_count, "Photon Caustics Count", 2);
   SOCKET_FLOAT(photon_caustics_detail, "Photon Caustics Detail", 1.0f);
   SOCKET_BOOLEAN(photon_casters_selected, "Photon Casters Selected", false);
   SOCKET_FLOAT(photon_caustics_intensity, "Photon Caustics Intensity", 1.0f);
+#endif  /* WITH_CYCLES_SPPM_CAUSTICS */
+  /* === CyclesPlus: Photon Caustics Sockets End === */
   SOCKET_FLOAT(filter_glossy, "Filter Glossy", 0.0f);
 
   SOCKET_BOOLEAN(use_direct_light, "Use Direct Light", true);
@@ -275,6 +279,8 @@ void Integrator::device_update(Device *device, DeviceScene *dscene, Scene *scene
   kintegrator->volume_ray_marching = volume_ray_marching;
   kintegrator->volume_max_steps = volume_max_steps;
 
+  /* === CyclesPlus: Photon Caustics Kernel Data Begin === */
+#ifdef WITH_CYCLES_SPPM_CAUSTICS
   /* Photon caustics replace path-traced caustics, but only for the materials
    * the photon map actually casts from - otherwise a material excluded from
    * casting would get its caustics from nobody. The per-material decision is
@@ -315,6 +321,8 @@ void Integrator::device_update(Device *device, DeviceScene *dscene, Scene *scene
   }();
   kintegrator->photon_partition_pt = use_photon_caustics ? partition_pt : 0;
   kintegrator->photon_intensity = max(photon_caustics_intensity, 0.0f);
+#endif  /* WITH_CYCLES_SPPM_CAUSTICS */
+  /* === CyclesPlus: Photon Caustics Kernel Data End === */
   kintegrator->filter_glossy = (filter_glossy == 0.0f) ? FLT_MAX : 1.0f / filter_glossy;
   kintegrator->differential_widen_scale = min(1.0f, filter_glossy);
 

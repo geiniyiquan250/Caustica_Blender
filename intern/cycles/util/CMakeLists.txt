@@ -11,7 +11,9 @@ set(INC_SYS
 
 set(SRC
   aligned_malloc.cpp
+  # === CyclesPlus: Caustics Profiler Source Begin ===
   caustics_profiler.cpp
+  # === CyclesPlus: Caustics Profiler Source End ===
   colorspace.cpp
   debug.cpp
   guarded_allocator.cpp
@@ -59,7 +61,9 @@ set(SRC_HEADERS
   atomic.h
   boundbox.h
   cache_limiter.h
+  # === CyclesPlus: Caustics Profiler Header Begin ===
   caustics_profiler.h
+  # === CyclesPlus: Caustics Profiler Header End ===
   color.h
   colorspace.h
   concurrent_set.h

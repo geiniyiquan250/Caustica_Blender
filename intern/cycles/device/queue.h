@@ -30,7 +30,9 @@ struct DeviceKernelArguments {
     HIPRT_GLOBAL_STACK,
   };
 
+  /* === CyclesPlus: Photon Device Kernel Argument Capacity Begin === */
   static const int MAX_ARGS = 23;
+  /* === CyclesPlus: Photon Device Kernel Argument Capacity End === */
   Type types[MAX_ARGS];
   void *values[MAX_ARGS];
   size_t sizes[MAX_ARGS];
