@@ -122,6 +122,9 @@ NODE_DEFINE(Integrator)
 #ifdef WITH_CYCLES_SPPM_CAUSTICS
   SOCKET_BOOLEAN(use_photon_caustics, "Photon Caustics", false);
   SOCKET_BOOLEAN(use_photon_volume_caustics, "Photon Volume Caustics", false);
+  /* === CyclesPlus: Personal Volume Beam Radius Begin === */
+  SOCKET_FLOAT(photon_volume_beam_radius_scale, "Photon Volume Beam Radius Scale", 1.0f);
+  /* === CyclesPlus: Personal Volume Beam Radius End === */
   SOCKET_INT(photon_caustics_count, "Photon Caustics Count", 2);
   SOCKET_FLOAT(photon_caustics_detail, "Photon Caustics Detail", 1.0f);
   SOCKET_BOOLEAN(photon_casters_selected, "Photon Casters Selected", false);
@@ -289,6 +292,9 @@ void Integrator::device_update(Device *device, DeviceScene *dscene, Scene *scene
   kintegrator->caustics_refractive = caustics_refractive;
   kintegrator->use_photon_caustics = use_photon_caustics;
   kintegrator->use_photon_volume_caustics = use_photon_volume_caustics;
+  /* === CyclesPlus: Personal Volume Beam Radius Begin === */
+  kintegrator->photon_volume_beam_radius_scale = photon_volume_beam_radius_scale;
+  /* === CyclesPlus: Personal Volume Beam Radius End === */
   kintegrator->photon_casters_selected = photon_casters_selected;
 
   /* The photon map adds to the path-traced caustics rather than replacing

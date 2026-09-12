@@ -694,6 +694,16 @@ class CyclesRenderSettings(bpy.types.PropertyGroup):
         default=False,
     )
 
+    # === CyclesPlus: Personal Volume Beam Radius Begin ===
+    photon_volume_beam_radius_scale: FloatProperty(
+        name="体积光束半径倍率",
+        description="体积焦散查询的宽核倍率。1.0 保持原始半径，更高值可融合稀疏光束，但会降低细节并增加查询开销",
+        min=1.0, max=4.0,
+        soft_min=1.0, soft_max=2.0,
+        default=1.0,
+    )
+    # === CyclesPlus: Personal Volume Beam Radius End ===
+
     photon_caustics_count: IntProperty(
         name="光子数量",
         description="Millions of photons per progressive pass. Caustics refine with every "

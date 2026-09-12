@@ -422,6 +422,10 @@ void BlenderSync::sync_integrator(blender::ViewLayer &b_view_layer,
   integrator->set_use_photon_caustics(use_photons);
   integrator->set_use_photon_volume_caustics(
       use_photons && get_boolean(cscene, "use_photon_volume_caustics"));
+  /* === CyclesPlus: Personal Volume Beam Radius Begin === */
+  integrator->set_photon_volume_beam_radius_scale(
+      get_float(cscene, "photon_volume_beam_radius_scale"));
+  /* === CyclesPlus: Personal Volume Beam Radius End === */
   integrator->set_photon_caustics_count(get_int(cscene, "photon_caustics_count"));
   integrator->set_photon_caustics_detail(get_float(cscene, "photon_caustics_detail"));
   /* 0 = ALL (every plausible material casts), 1 = SELECTED (flagged only). */

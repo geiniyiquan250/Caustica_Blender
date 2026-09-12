@@ -173,15 +173,27 @@ ccl_device float3 photon_grid_beam_integral(KernelGlobals kg,
     return make_float3(0.0f, 0.0f, 0.0f);
   }
 
-  const float radius2 = r2;
+  /* === CyclesPlus: Personal Volume Beam Radius Begin === */
+  const float radius_scale = max(kernel_data.integrator.photon_volume_beam_radius_scale,
+                                 1.0f);
+  const float radius2 = r2 * radius_scale * radius_scale;
+  /* The Epanechnikov kernel remains normalized by this expanded support area,
+   * so widening blends neighboring beams without multiplying total energy. */
+  /* === CyclesPlus: Personal Volume Beam Radius End === */
   const float gg = clamp(volume_g, -0.999f, 0.999f);
   const float3 camera_sigma_t = max(sigma_t, make_float3(0.0f));
+  /* Neutral media share the same scalar attenuation and integral across RGB. */
+  const bool reuse_neutral = camera_sigma_t.x == camera_sigma_t.y &&
+                             camera_sigma_t.x == camera_sigma_t.z;
   float3 result = make_float3(0.0f, 0.0f, 0.0f);
   int stack[64];
   int stack_size = 0;
   stack[stack_size++] = 0;
   const float3 ro = ray_P + ray_D * tmin;
   uint nodes = 0, rejects = 0, leaves = 0, candidates = 0, hits = 0, phases = 0;
+  /* === CyclesPlus: Beam Integral Reuse Counter Begin === */
+  uint integral_reuses = 0;
+  /* === CyclesPlus: Beam Integral Reuse Counter End === */
   while (stack_size > 0) {
     if (profile) {
       nodes++;
@@ -279,14 +291,32 @@ ccl_device float3 photon_grid_beam_integral(KernelGlobals kg,
         const float3 rate = fabs(camera_sigma_t + beam_sigma_t * cosine);
         const float3 depth_near = camera_sigma_t * near_t + beam_sigma_t * (beam_t + a4.w);
         const float3 depth_far = camera_sigma_t * far_t + beam_sigma_t * (beam_far_t + a4.w);
-        const float3 attenuation = exp(-min(depth_near, depth_far));
-        const float3 integral = make_float3(
+        /* === CyclesPlus: Beam Integral Reuse Begin === */
+        float3 attenuation;
+        float3 integral;
+        if (reuse_neutral && beam_sigma_t.x == beam_sigma_t.y &&
+            beam_sigma_t.x == beam_sigma_t.z) {
+          /* Exact channel equality only. Preserve the original scalar operation order,
+           * small-rate branch and expm1 stability; colored flux/scattering stays RGB. */
+          attenuation = make_float3(expf(-min(depth_near.x, depth_far.x)));
+          integral = make_float3(
+              fabsf(rate.x * span) < 1e-4f ? span * (1.0f - 0.5f * rate.x * span) :
+                                           -expm1f(-rate.x * span) / rate.x);
+          if (profile) {
+            integral_reuses++;
+          }
+        }
+        else {
+          attenuation = exp(-min(depth_near, depth_far));
+          integral = make_float3(
             fabsf(rate.x * span) < 1e-4f ? span * (1.0f - 0.5f * rate.x * span) :
                                          -expm1f(-rate.x * span) / rate.x,
             fabsf(rate.y * span) < 1e-4f ? span * (1.0f - 0.5f * rate.y * span) :
                                          -expm1f(-rate.y * span) / rate.y,
             fabsf(rate.z * span) < 1e-4f ? span * (1.0f - 0.5f * rate.z * span) :
                                          -expm1f(-rate.z * span) / rate.z);
+        }
+        /* === CyclesPlus: Beam Integral Reuse End === */
         /* Use a normalized Epanechnikov footprint across the beam cross
          * section. Simpson sampling along the camera interval preserves the
          * unit integral while replacing the hard cylinder edge that exposes
@@ -346,6 +376,9 @@ ccl_device float3 photon_grid_beam_integral(KernelGlobals kg,
   photon_volume_profile_add(profile, PHOTON_PROFILE_HITS, hits);
   photon_volume_profile_add(profile, PHOTON_PROFILE_HG_EVALS, sd == nullptr ? hits : 0);
   photon_volume_profile_add(profile, PHOTON_PROFILE_CLOSURE_EVALS, phases);
+  /* === CyclesPlus: Beam Integral Reuse Counter Flush Begin === */
+  photon_volume_profile_add(profile, PHOTON_PROFILE_INTEGRAL_REUSES, integral_reuses);
+  /* === CyclesPlus: Beam Integral Reuse Counter Flush End === */
   return result;
 }
 

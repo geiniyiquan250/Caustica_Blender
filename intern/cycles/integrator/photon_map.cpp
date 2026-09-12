@@ -2923,6 +2923,9 @@ struct PhotonMapData {
   int photons_per_batch = 2000000;
   uint64_t iteration = 0; /* batches traced so far (seeds the RNG streams) */
   float radius = 0.0f;
+  /* === CyclesPlus: Personal Volume Beam Radius Begin === */
+  float volume_beam_radius_scale = 1.0f;
+  /* === CyclesPlus: Personal Volume Beam Radius End === */
 
   /* Interactive sessions ramp the batch size up over time instead of
    * tracing full batches from the start: small early batches publish
@@ -3533,6 +3536,7 @@ void build_volume_beam_bvh(const float4 *dep_pos,
                            const float4 *dep_sigma,
                            const size_t total,
                            const float radius,
+                           const float volume_beam_radius_scale,
                            PhotonMapData::Storage &out)
 {
   CCL_PHOTON_PROFILE_SCOPE("volume.beam_bvh_build", &out, total);
@@ -3573,7 +3577,10 @@ void build_volume_beam_bvh(const float4 *dep_pos,
   vector<float3> beam_bounds_min(out.volume_beam_start.size());
   vector<float3> beam_bounds_max(out.volume_beam_start.size());
   vector<float3> beam_centers(out.volume_beam_start.size());
-  const float beam_radius = photon_safe_radius(radius);
+  /* === CyclesPlus: Personal Volume Beam Radius Begin === */
+  /* Keep BVH bounds conservative for the expanded query support. */
+  const float beam_radius = photon_safe_radius(radius) * max(volume_beam_radius_scale, 1.0f);
+  /* === CyclesPlus: Personal Volume Beam Radius End === */
   for (size_t i = 0; i < out.volume_beam_start.size(); i++) {
     const float3 a = make_float3(out.volume_beam_start[i].x,
                                  out.volume_beam_start[i].y,
@@ -3674,6 +3681,7 @@ size_t bin_packed_deposits(const float4 *dep_pos,
                            const float4 *dep_sigma,
                            const size_t total,
                            const float radius,
+                           const float volume_beam_radius_scale,
                            PhotonMapData::Storage &out)
 {
   CCL_PHOTON_PROFILE_SCOPE("photon.cpu_binning", &out, total);
@@ -3714,7 +3722,14 @@ size_t bin_packed_deposits(const float4 *dep_pos,
     out.beam_sigma[at] = dep_sigma[i];
   }
 
-  build_volume_beam_bvh(dep_pos, dep_beam_start, dep_flux, dep_sigma, total, safe_radius, out);
+  build_volume_beam_bvh(dep_pos,
+                        dep_beam_start,
+                        dep_flux,
+                        dep_sigma,
+                        total,
+                        safe_radius,
+                        volume_beam_radius_scale,
+                        out);
 
   out.grid.pos = out.pos.data();
   out.grid.beam_start = out.beam_start.data();
@@ -4231,6 +4246,7 @@ size_t trace_batch_gpu(PhotonMapData &d,
                               out.beam_sigma.data(),
                               total,
                               safe_radius,
+                              d.volume_beam_radius_scale,
                               out);
         out.grid.pos = out.pos.data();
         out.grid.beam_start = out.beam_start.data();
@@ -4426,6 +4442,7 @@ size_t trace_batch_gpu(PhotonMapData &d,
       all_beam_sigma.data(),
       all_pos.size(),
       radius,
+      d.volume_beam_radius_scale,
       out);
 }
 
@@ -4745,6 +4762,7 @@ size_t gpu_async_finish(PhotonMapData &d, PhotonMapData::Storage &out)
                           out.beam_sigma.data(),
                           total,
                           d.gpu_radius,
+                          d.volume_beam_radius_scale,
                           out);
     out.grid.pos = out.pos.data();
     out.grid.beam_start = out.beam_start.data();
@@ -4814,6 +4832,7 @@ size_t trace_batch(const PhotonTraceScene &ps,
                    const vector<float> &light_share,
                    const int num_photons,
                    const float radius,
+                   const float volume_beam_radius_scale,
                    const uint64_t seed,
                    const std::atomic<bool> *cancel,
                    PhotonMapData::Storage &out)
@@ -4895,7 +4914,14 @@ size_t trace_batch(const PhotonTraceScene &ps,
     }
   }
   return bin_packed_deposits(
-      dep_pos.data(), dep_beam_start.data(), dep_flux.data(), dep_sigma.data(), total, radius, out);
+      dep_pos.data(),
+      dep_beam_start.data(),
+      dep_flux.data(),
+      dep_sigma.data(),
+      total,
+      radius,
+      volume_beam_radius_scale,
+      out);
 }
 
 }  // namespace
@@ -5044,6 +5070,7 @@ void PhotonMap::launch_batch_async()
                     pd->light_share,
                     num_photons,
                     radius,
+                    pd->volume_beam_radius_scale,
                     batch_seed(k),
                     &pd->cancel,
                     pd->buf[back]);
@@ -5108,6 +5135,10 @@ void PhotonMap::restart(Scene *scene,
   d.scene = PhotonTraceScene();
   d.lights.clear();
   d.targets.clear();
+  /* === CyclesPlus: Personal Volume Beam Radius Begin === */
+  d.volume_beam_radius_scale = std::min(
+      std::max(scene->integrator->get_photon_volume_beam_radius_scale(), 1.0f), 4.0f);
+  /* === CyclesPlus: Personal Volume Beam Radius End === */
   static const bool gpu_disabled_env = getenv("CYCLESPLUS_PHOTON_GPU_DISABLE") != nullptr;
   /* GPU tracing: CUDA and OptiX devices trace batches on the GPU via the
    * real scene BVH (OptiX through its own raygen entry); CPU devices keep
@@ -5416,7 +5447,16 @@ void PhotonMap::restart(Scene *scene,
   const double first_start = time_dt();
   const size_t total = d.gpu_trace ?
       trace_batch_gpu(d, first_batch, r0, k, &d.cancel, d.buf[back]) :
-      trace_batch(d.scene, d.lights, d.targets, d.light_share, first_batch, r0, batch_seed(k), &d.cancel, d.buf[back]);
+      trace_batch(d.scene,
+                  d.lights,
+                  d.targets,
+                  d.light_share,
+                  first_batch,
+                  r0,
+                  d.volume_beam_radius_scale,
+                  batch_seed(k),
+                  &d.cancel,
+                  d.buf[back]);
   const double first_elapsed = time_dt() - first_start;
   if (total > 0) {
     /* The batch's WEIGHT and steady flag follow from its SIZE alone - never

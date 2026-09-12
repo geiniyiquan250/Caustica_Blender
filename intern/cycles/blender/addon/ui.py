@@ -695,6 +695,11 @@ class CYCLES_RENDER_PT_light_paths_caustics(CyclesButtonsPanel, Panel):
         sub = col.column(align=True)
         sub.active = cscene.use_photon_caustics
         sub.prop(cscene, "use_photon_volume_caustics", text="体积焦散")
+        # === CyclesPlus: Personal Volume Beam Radius Begin ===
+        volume_sub = sub.column(align=True)
+        volume_sub.active = cscene.use_photon_volume_caustics
+        volume_sub.prop(cscene, "photon_volume_beam_radius_scale", text="体积光束半径倍率")
+        # === CyclesPlus: Personal Volume Beam Radius End ===
         sub.prop(cscene, "photon_caustics_count", text="光子数量")
         sub.prop(cscene, "photon_caustics_detail", text="细节")
         sub.prop(cscene, "photon_caustics_intensity", text="强度")

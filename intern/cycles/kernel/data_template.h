@@ -242,6 +242,9 @@ KERNEL_STRUCT_MEMBER(integrator, int, photon_table_size)
 KERNEL_STRUCT_MEMBER(integrator, int, photon_volume_beam_num)
 KERNEL_STRUCT_MEMBER(integrator, int, photon_volume_beam_node_num)
 KERNEL_STRUCT_MEMBER(integrator, float, photon_radius)
+/* === CyclesPlus: Personal Volume Beam Radius Begin === */
+KERNEL_STRUCT_MEMBER(integrator, float, photon_volume_beam_radius_scale)
+/* === CyclesPlus: Personal Volume Beam Radius End === */
 KERNEL_STRUCT_MEMBER(integrator, float, photon_inv_cell)
 KERNEL_STRUCT_MEMBER(integrator, int, photon_batch_steady)
 /* Global last scheduled sample of the CURRENT render work. The photon

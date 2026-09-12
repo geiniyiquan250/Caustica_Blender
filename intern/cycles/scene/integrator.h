@@ -83,6 +83,7 @@ class Integrator : public Node {
 #ifdef WITH_CYCLES_SPPM_CAUSTICS
   NODE_SOCKET_API(bool, use_photon_caustics)
   NODE_SOCKET_API(bool, use_photon_volume_caustics)
+  NODE_SOCKET_API(float, photon_volume_beam_radius_scale)
   NODE_SOCKET_API(int, photon_caustics_count)
   NODE_SOCKET_API(float, photon_caustics_detail)
   /* CyclesPlus: only materials flagged "Cast Photon Caustics" cast photons
