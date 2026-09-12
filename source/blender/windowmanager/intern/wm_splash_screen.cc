@@ -14,13 +14,17 @@
  * - Links to web sites.
  */
 
+#include <cmath>
 #include <cstring>
 
 #include "DNA_screen_types.h"
 #include "DNA_userdef_types.h"
 #include "DNA_windowmanager_types.h"
 
+#include "MEM_guardedalloc.h"
+
 #include "BLI_listbase.h"
+#include "BLI_math_color.h"
 #include "BLI_math_base.h"
 #include "BLI_path_utils.hh"
 #include "BLI_utildefines.h"
@@ -38,12 +42,17 @@
 #include "ED_datafiles.h"
 #include "ED_screen.hh"
 
+#include "GPU_immediate.hh"
+#include "GPU_state.hh"
+
 #include "RNA_access.hh"
 
 #include "UI_interface.hh"
 #include "UI_interface_icons.hh"
 #include "UI_interface_layout.hh"
 #include "UI_resources.hh"
+
+#include "interface_intern.hh"
 
 #include "WM_api.hh"
 #include "WM_types.hh"
@@ -55,6 +64,192 @@ namespace blender {
 /* -------------------------------------------------------------------- */
 /** \name Splash Screen
  * \{ */
+
+struct SplashAnimationState {
+  wmWindowManager *wm = nullptr;
+  wmWindow *win = nullptr;
+  ARegion *region = nullptr;
+  wmTimer *timer = nullptr;
+  float phase = 0.0f;
+  float color_phase = 0.0f;
+  float grid_phase = 0.0f;
+};
+
+static void wm_splash_animation_free(void *arg)
+{
+  SplashAnimationState *state = static_cast<SplashAnimationState *>(arg);
+  if (!state) {
+    return;
+  }
+
+  if (state->timer && state->wm) {
+    WM_event_timer_remove(state->wm, state->win, state->timer);
+  }
+  MEM_delete(state);
+}
+
+static void wm_splash_animation_line(uint pos,
+                                     uint col,
+                                     const float color[4],
+                                     float x1,
+                                     float y1,
+                                     float x2,
+                                     float y2)
+{
+  immAttr4fv(col, color);
+  immVertex2f(pos, x1, y1);
+  immAttr4fv(col, color);
+  immVertex2f(pos, x2, y2);
+}
+
+static void wm_splash_animation_draw(const SplashAnimationState *state, rcti *rect)
+{
+  if (!state || !rect || rect->xmin >= rect->xmax || rect->ymin >= rect->ymax) {
+    return;
+  }
+
+  const float xmin = float(rect->xmin);
+  const float ymin = float(rect->ymin);
+  const float width = float(rect->xmax - rect->xmin);
+  const float height = float(rect->ymax - rect->ymin);
+  const float xmax = xmin + width;
+  const float ymax = ymin + height;
+  const float vanish_x = xmin + width * 0.5f;
+  const float vanish_y = ymin + height * 0.60f;
+
+  int scissor[4];
+  GPU_scissor_get(scissor);
+  const GPUBlend old_blend = GPU_blend_get();
+  const bool old_line_smooth = GPU_line_smooth_get();
+  GPU_scissor(rect->xmin, rect->ymin, rect->xmax - rect->xmin, rect->ymax - rect->ymin);
+  GPU_blend(GPU_BLEND_ALPHA);
+  GPU_line_smooth(true);
+  GPU_line_width(1.0f);
+
+  GPUVertFormat *format = immVertexFormat();
+  const uint pos = GPU_vertformat_attr_add(format, "pos", gpu::VertAttrType::SFLOAT_32_32);
+  const uint col = GPU_vertformat_attr_add(
+      format, "color", gpu::VertAttrType::SFLOAT_32_32_32_32);
+  immBindBuiltinProgram(GPU_SHADER_3D_FLAT_COLOR);
+
+  const float background[4] = {0.003f, 0.004f, 0.006f, 1.0f};
+  immBegin(GPU_PRIM_TRI_STRIP, 4);
+  wm_splash_animation_line(pos, col, background, xmin, ymin, xmax, ymin);
+  wm_splash_animation_line(pos, col, background, xmin, ymax, xmax, ymax);
+  immEnd();
+
+  constexpr int horizontal_count = 18;
+  GPU_line_width(1.25f);
+  immBegin(GPU_PRIM_LINES, horizontal_count * 2);
+  for (int i = 0; i < horizontal_count; i++) {
+    const float depth = fmodf(float(i) / float(horizontal_count) + state->grid_phase, 1.0f);
+    const float perspective = depth * depth;
+    const float y = vanish_y - (vanish_y - ymin) * perspective;
+    const float brightness = 0.45f + depth * 0.95f;
+    const float color[4] = {0.16f * brightness,
+                            0.48f * brightness,
+                            0.82f * brightness,
+                            (0.025f + depth * 0.155f) * (0.35f + depth * 0.95f)};
+    wm_splash_animation_line(pos, col, color, xmin, y, xmax, y);
+  }
+  immEnd();
+
+  constexpr int lane_count = 12;
+  constexpr int lane_segments = 8;
+  immBegin(GPU_PRIM_LINES, lane_count * lane_segments * 2);
+  for (int lane = 0; lane < lane_count; lane++) {
+    const float normalized_lane = (float(lane) - float(lane_count - 1) * 0.5f) /
+                                  (float(lane_count - 1) * 0.5f);
+    const float near_vanish_x = vanish_x + normalized_lane * width * 0.018f;
+    const float bottom_x = vanish_x + normalized_lane * width * 1.05f;
+    const float color[4] = {0.20f, 0.34f, 0.72f, 0.075f};
+
+    for (int segment = 0; segment < lane_segments; segment++) {
+      const float t1 = float(segment) / float(lane_segments);
+      const float t2 = float(segment + 1) / float(lane_segments);
+      const float bend = normalized_lane * width * 0.035f;
+      const float base_grid_brightness = 1.0f + 0.35f * t1;
+      const float segment_color[4] = {color[0],
+                                      color[1],
+                                      color[2],
+                                      color[3] * (0.25f + t1) * base_grid_brightness};
+      const float x1 = interpf(bottom_x, near_vanish_x, t1) + bend * t1 * t1;
+      const float y1 = interpf(ymin, vanish_y, t1);
+      const float x2 = interpf(bottom_x, near_vanish_x, t2) + bend * t2 * t2;
+      const float y2 = interpf(ymin, vanish_y, t2);
+      wm_splash_animation_line(pos, col, segment_color, x1, y1, x2, y2);
+    }
+  }
+  immEnd();
+
+  constexpr int accent_count = 18;
+  constexpr int accent_samples = 33;
+  GPU_line_width(2.0f);
+  immBindBuiltinProgram(GPU_SHADER_3D_SMOOTH_COLOR);
+  const float pulse_phase = state->phase;
+  const float color_phase = state->color_phase;
+  for (int accent = 0; accent < accent_count; accent++) {
+    const float normalized_lane = (float(accent) - float(accent_count - 1) * 0.5f) /
+                                  (float(accent_count - 1) * 0.5f);
+    const float drift_phase = pulse_phase * M_TAU;
+    const float near_vanish_x = vanish_x + normalized_lane * width * 0.028f;
+    const float bottom_x = vanish_x + normalized_lane * width * 0.82f;
+    const float pulse_offset = 0.018f * sinf(float(accent) * 2.399f + drift_phase * 0.61f) +
+                               0.008f * cosf(float(accent) * 1.731f + drift_phase * 1.19f);
+    const float hue = fmodf(color_phase + float(accent) * 0.071f, 1.0f);
+    const float next_hue_value = fmodf(hue + 0.09f, 1.0f);
+    float color[3];
+    float next_hue[3];
+    hsv_to_rgb(hue, 0.82f, 1.0f, &color[0], &color[1], &color[2]);
+    hsv_to_rgb(next_hue_value, 0.82f, 1.0f, &next_hue[0], &next_hue[1], &next_hue[2]);
+    const float bend = normalized_lane * width * 0.035f;
+
+    immBegin(GPU_PRIM_LINE_STRIP, accent_samples);
+    for (int sample = 0; sample < accent_samples; sample++) {
+      const float u = float(sample) / float(accent_samples - 1);
+      const float wave = 0.5f + 0.5f * cosf((u - pulse_phase - pulse_offset) * M_TAU);
+      const float pulse = powf(wave, 8.0f);
+      const float edge = min_ff(u / 0.12f, (1.0f - u) / 0.12f);
+      const float edge_fade = max_ff(0.0f, min_ff(edge, 1.0f));
+      const float smooth_edge = edge_fade * edge_fade * (3.0f - 2.0f * edge_fade);
+      const float hue_drift = 0.10f * sinf(drift_phase * 0.47f + float(accent) * 0.83f);
+      const float hue_mix = max_ff(0.0f, min_ff(1.0f, 0.12f + 0.76f * u + hue_drift));
+      const float sample_color[4] = {
+          interpf(next_hue[0], color[0], hue_mix),
+          interpf(next_hue[1], color[1], hue_mix),
+          interpf(next_hue[2], color[2], hue_mix),
+          (0.04f + 0.96f * pulse) * smooth_edge * (0.42f + 0.58f * pulse)};
+      const float x = interpf(bottom_x, near_vanish_x, u) + bend * u * u;
+      const float y = interpf(ymin, vanish_y, u);
+      immAttr4fv(col, sample_color);
+      immVertex2f(pos, x, y);
+    }
+    immEnd();
+  }
+
+  immUnbindProgram();
+  GPU_line_smooth(old_line_smooth);
+  GPU_blend(old_blend);
+  GPU_scissor(scissor[0], scissor[1], scissor[2], scissor[3]);
+}
+
+static int wm_splash_animation_event(const bContext * /*C*/,
+                                     ui::Block *block,
+                                     const wmEvent *event)
+{
+  SplashAnimationState *state = static_cast<SplashAnimationState *>(
+      block->handle->popup_create_vars.arg);
+  if (state && state->timer && event->type == TIMER && event->customdata == state->timer) {
+    state->grid_phase = fmodf(state->grid_phase + 0.0048f, 1.0f);
+    state->phase += 0.0084f;
+    state->color_phase = fmodf(state->color_phase + 0.0027f, 1.0f);
+    if (state->region) {
+      ED_region_tag_redraw(state->region);
+    }
+    return 1;
+  }
+  return 0;
+}
 
 static void wm_block_splash_close(bContext *C, ui::Block *block)
 {
@@ -287,8 +482,9 @@ static int is_using_macos_rosetta()
 }
 #endif /* __APPLE__ */
 
-static ui::Block *wm_block_splash_create(bContext *C, ARegion *region, void * /*arg*/)
+static ui::Block *wm_block_splash_create(bContext *C, ARegion *region, void *arg)
 {
+  SplashAnimationState *animation = static_cast<SplashAnimationState *>(arg);
   const uiStyle *style = ui::style_get_dpi();
 
   ui::Block *block = block_begin(C, region, "splash", ui::EmbossType::Emboss);
@@ -312,6 +508,36 @@ static ui::Block *wm_block_splash_create(bContext *C, ARegion *region, void * /*
         block, ibuf, 0, 0.5f * U.widget_unit, splash_width, splash_height, nullptr);
 
     button_func_set(but, [block](bContext &C) { wm_block_splash_close(&C, block); });
+
+    if (animation) {
+      ui::Button *animation_but = uiDefBut(block,
+                                           ui::ButtonType::Extra,
+                                           "",
+                                           0,
+                                           0.5f * U.widget_unit,
+                                           splash_width,
+                                           splash_height,
+                                           nullptr,
+                                           0.0f,
+                                           0.0f,
+                                           "");
+      button_func_set(animation_but,
+                      [block](bContext &C) { wm_block_splash_close(&C, block); });
+      button_func_drawextra_set(
+          block,
+          [animation](const bContext * /*C*/, rcti *rect) {
+            wm_splash_animation_draw(animation, rect);
+          });
+
+      animation->wm = CTX_wm_manager(C);
+      animation->win = CTX_wm_window(C);
+      animation->region = region;
+      if (!animation->timer) {
+        animation->timer = WM_event_timer_add(
+            animation->wm, animation->win, TIMER, 1.0f / 60.0f);
+      }
+      block->block_event_func = wm_splash_animation_event;
+    }
 
     wm_block_splash_add_label(block,
                               BKE_blender_version_string(),
@@ -411,7 +637,8 @@ static wmOperatorStatus wm_splash_invoke(bContext *C,
                                          wmOperator * /*op*/,
                                          const wmEvent * /*event*/)
 {
-  ui::popup_block_invoke(C, wm_block_splash_create, nullptr, nullptr);
+  SplashAnimationState *animation = MEM_new<SplashAnimationState>(__func__);
+  ui::popup_block_invoke(C, wm_block_splash_create, animation, wm_splash_animation_free);
 
   return OPERATOR_FINISHED;
 }
