@@ -467,7 +467,11 @@ void PathTraceWorkGPU::render_samples(RenderStatistics &statistics,
           "volume.detail.cap_rejects", "volume.detail.interval_rejects",
           "volume.detail.hits",
           "volume.detail.hg_evals", "volume.detail.closure_evals",
-          "volume.detail.stack_overflows"};
+          "volume.detail.stack_overflows",
+          /* === CyclesPlus: Beam Integral Reuse Counter Begin === */
+          "volume.detail.integral_reuses"
+          /* === CyclesPlus: Beam Integral Reuse Counter End === */
+      };
       static_assert(sizeof(names) / sizeof(names[0]) == PHOTON_PROFILE_NUM_COUNTERS);
       photon_profile_value("volume.detail.sample_stride", queue_.get(),
                            PHOTON_PROFILE_SAMPLE_MASK + 1);

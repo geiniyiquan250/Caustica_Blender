@@ -9,6 +9,7 @@
 #include "integrator/path_trace.h"
 /* === CyclesPlus: Photon Caustics Includes Begin === */
 #ifdef WITH_CYCLES_SPPM_CAUSTICS
+#include <cstdlib>
 #include "integrator/photon_map.h"
 #endif
 /* === CyclesPlus: Photon Caustics Includes End === */
@@ -354,6 +355,17 @@ void Session::thread_render()
   else {
     progress.set_update();
   }
+
+  /* === CyclesPlus: Render End Profile Flush Begin === */
+#ifdef WITH_CYCLES_SPPM_CAUSTICS
+  /* Persist partial captures before the session returns to waiting, including cancellation. */
+  if (photon_profile_enabled()) {
+    photon_profile_value("session.render_end_cancelled", this, progress.get_cancel());
+    photon_profile_value("session.render_end_error", this, progress.get_error());
+    photon_profile_flush();
+  }
+#endif  /* WITH_CYCLES_SPPM_CAUSTICS */
+  /* === CyclesPlus: Render End Profile Flush End === */
 }
 
 bool Session::is_session_thread_rendering()

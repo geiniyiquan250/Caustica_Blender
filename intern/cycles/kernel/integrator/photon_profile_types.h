@@ -41,6 +41,9 @@ enum PhotonVolumeProfileCounter {
   PHOTON_PROFILE_HG_EVALS,
   PHOTON_PROFILE_CLOSURE_EVALS,
   PHOTON_PROFILE_STACK_OVERFLOWS,
+  /* === CyclesPlus: Beam Integral Reuse Counter Begin === */
+  PHOTON_PROFILE_INTEGRAL_REUSES,
+  /* === CyclesPlus: Beam Integral Reuse Counter End === */
   PHOTON_PROFILE_NUM_COUNTERS,
 };
 
